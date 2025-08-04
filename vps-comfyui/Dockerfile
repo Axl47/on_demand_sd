@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt    # pulls OpenCV ≥4.11 aut
 ENV COMFYUI_DISABLE_CUDA=1
 EXPOSE 8188
 CMD ["python", "main.py", \
-  "--device", "cpu", \
+  "--cpu", \
   "--listen", "0.0.0.0", \
   "--port", "8188", \
   "--dont-print-server"]
