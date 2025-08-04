@@ -13,6 +13,7 @@ services:
       # Model and output persistence
       - ./vps-comfyui/models:/root/.cache/comfyui/ComfyUI/models:rw
       - ./vps-comfyui/outputs:/root/.cache/comfyui/ComfyUI/output:rw
+      - ./vps-comfyui/custom_nodes/:/root/.cache/comfyui/ComfyUI/custom_nodes:rw
     environment:
       - COMFYUI_DISABLE_CUDA=1
       - API_KEY=${API_KEY}
