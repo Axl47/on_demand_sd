@@ -2,15 +2,28 @@ FROM python:3.10-slim
 
 # ---- system deps ----
 RUN apt-get update -qq && \
-  apt-get install -y --no-install-recommends git libgl1 && \
+  apt-get install -y --no-install-recommends \
+    git \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    wget \
+    curl && \
   rm -rf /var/lib/apt/lists/*
 
-# ---- install ComfyUI + comfy-cli ----
+# ---- install PyTorch first ----
 RUN pip install --no-cache-dir \
-  comfy-cli==1.4.1 \
   torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-  --index-url https://download.pytorch.org/whl/cpu \
-  && comfy install
+  --index-url https://download.pytorch.org/whl/cpu
+
+# ---- install comfy-cli ----
+RUN pip install --no-cache-dir comfy-cli
+
+# ---- install ComfyUI ----
+RUN comfy install
 
 # ---- runtime config ----
 WORKDIR /root/.cache/comfyui/ComfyUI
