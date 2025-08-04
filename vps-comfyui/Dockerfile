@@ -1,39 +1,36 @@
-FROM python:3.10-slim
+# ───────────────────────────────────────────────────────
+# Minimal CPU-only ComfyUI image (800-900 MB)
+# ───────────────────────────────────────────────────────
+FROM --platform=linux/amd64 python:3.10-slim
 
-# ---- system deps ----
+# --- system packages needed at *build* time -------------
 RUN apt-get update -qq && \
   apt-get install -y --no-install-recommends \
-    git \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    wget \
-    curl && \
+  git build-essential libgl1 libglib2.0-0 ffmpeg && \
   rm -rf /var/lib/apt/lists/*
 
-# ---- install PyTorch first ----
+# --- Python deps: CPU wheels only ------------------------
 RUN pip install --no-cache-dir \
   torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-  --index-url https://download.pytorch.org/whl/cpu
+  --index-url https://download.pytorch.org/whl/cpu && \
+  pip install --no-cache-dir \
+  numpy==1.26.4 pillow==10.3.0 \
+  opencv-python-headless==4.10.0.86 \
+  scikit-image==0.23.2 \
+  einops==0.8.0
 
-# ---- install comfy-cli ----
-RUN pip install --no-cache-dir comfy-cli
+# --- clone ComfyUI & install its requirements -----------
+ENV COMFY_HOME=/opt/ComfyUI
+RUN git clone --depth=1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_HOME"
+WORKDIR $COMFY_HOME
+RUN pip install --no-cache-dir -r requirements.txt \
+  && pip cache purge
 
-# ---- install ComfyUI ----
-RUN echo "n" | comfy install
-
-# ---- runtime config ----
-WORKDIR /root/.cache/comfyui/ComfyUI
+# --- runtime --------------------------------------------
 ENV COMFYUI_DISABLE_CUDA=1
-
 EXPOSE 8188
-CMD ["comfy", "launch", \
+CMD ["python", "main.py", \
+  "--device", "cpu", \
   "--listen", "0.0.0.0", \
   "--port", "8188", \
-  "--dont-print-server", \
-  "--background", \
-  "--device", "cpu"]
-
+  "--dont-print-server"]
