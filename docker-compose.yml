@@ -29,6 +29,7 @@ services:
     volumes:
       - ./job-dispatcher:/app
       - ~/.config/gcloud:/root/.config/gcloud:ro
+      - ./job-dispatcher/sa-key.json:/tmp/sa-key.json:ro
     working_dir: /app
     environment:
       - GCP_PROJECT=${GCP_PROJECT}
@@ -36,6 +37,7 @@ services:
       - GCE_ZONE=${GCE_ZONE:-us-central1-a}
       - JOB_BUCKET=${JOB_BUCKET:-gs://SD_JOBS}
       - OUT_BUCKET=${OUT_BUCKET:-gs://SD_OUTPUTS}
+      - GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json
     command: |
       sh -c "pip install -r requirements.txt 2>/dev/null || pip install fastapi uvicorn google-cloud-compute google-cloud-storage google-api-python-client && 
              uvicorn main:app --host 0.0.0.0 --port 8187"
