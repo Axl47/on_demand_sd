@@ -7,9 +7,9 @@ RUN apt-get update -qq && \
 
 # ---- install ComfyUI + comfy-cli ----
 RUN pip install --no-cache-dir \
-  comfy-cli==0.9.2 \
-  torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
-  --index-url https://download.pytorch.org/whl/cpu  \
+  comfy-cli==1.4.1 \
+  torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 \
+  --index-url https://download.pytorch.org/whl/cpu \
   && comfy install
 
 # ---- runtime config ----
