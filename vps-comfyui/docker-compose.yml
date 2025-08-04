@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  comfyui:
+    build: .
+    container_name: comfy-ui-cpu
+    ports:
+      - "${COMFY_PORT}:${COMFY_PORT}"
+    volumes:
+      # Optional: map host folders so UI can reuse models and show previews
+      - ./models:/root/.cache/comfyui/ComfyUI/models:rw
+      - ./outputs:/root/.cache/comfyui/ComfyUI/output:rw
+    environment:
+      - COMFYUI_DISABLE_CUDA=1
+      - API_KEY=${API_KEY}
+    restart: unless-stopped
