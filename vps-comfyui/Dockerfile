@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir comfy-cli
 
 # ---- install ComfyUI ----
-RUN comfy install
+RUN echo "n" | comfy install
 
 # ---- runtime config ----
 WORKDIR /root/.cache/comfyui/ComfyUI
