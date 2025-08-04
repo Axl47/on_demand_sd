@@ -1,32 +1,26 @@
-# ───────────────────────────────────────────────────────
-# Minimal CPU-only ComfyUI image (800-900 MB)
-# ───────────────────────────────────────────────────────
-FROM --platform=linux/amd64 python:3.10-slim
+# ─────────────────────────────────────────────────────────────
+# CPU-only ComfyUI front-end for the VPS
+# ─────────────────────────────────────────────────────────────
+FROM python:3.11-slim
 
-# --- system packages needed at *build* time -------------
+# 1. Basic build tools + runtime libs
 RUN apt-get update -qq && \
   apt-get install -y --no-install-recommends \
   git build-essential libgl1 libglib2.0-0 ffmpeg && \
   rm -rf /var/lib/apt/lists/*
 
-# --- Python deps: CPU wheels only ------------------------
+# 2. Latest CPU-only PyTorch stack (auto-selects compatible versions)
 RUN pip install --no-cache-dir \
-  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-  --index-url https://download.pytorch.org/whl/cpu && \
-  pip install --no-cache-dir \
-  numpy==1.26.4 pillow==10.3.0 \
-  opencv-python-headless==4.10.0.86 \
-  scikit-image==0.23.2 \
-  einops==0.8.0
+  torch torchvision torchaudio \
+  --index-url https://download.pytorch.org/whl/cpu   # official CPU index :contentReference[oaicite:3]{index=3}
 
-# --- clone ComfyUI & install its requirements -----------
+# 3. Clone ComfyUI and install its Python deps
 ENV COMFY_HOME=/opt/ComfyUI
 RUN git clone --depth=1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_HOME"
 WORKDIR $COMFY_HOME
-RUN pip install --no-cache-dir -r requirements.txt \
-  && pip cache purge
+RUN pip install --no-cache-dir -r requirements.txt    # pulls OpenCV ≥4.11 automatically :contentReference[oaicite:4]{index=4}
 
-# --- runtime --------------------------------------------
+# 4. Disable CUDA; run on port 8188
 ENV COMFYUI_DISABLE_CUDA=1
 EXPOSE 8188
 CMD ["python", "main.py", \
