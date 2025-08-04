@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir \
   comfy-cli==0.9.2 \
   torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
   --index-url https://download.pytorch.org/whl/cpu  \
-  && comfy install   # clones ComfyUI into /root/.cache/comfyui
+  && comfy install
 
 # ---- runtime config ----
 WORKDIR /root/.cache/comfyui/ComfyUI
