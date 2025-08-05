@@ -11,17 +11,26 @@ JOB_JSON_GCS="$(meta job_workflow)"      # gs://…/job.json
 MODEL_URI="$(meta model_uri)"            # gs://…/model.safetensors  OR  https://civitai.com/…
 OUT_BUCKET="$(meta output_bucket)"       # gs://…/outputs/job-id/
 
-# -------- 0b. Mount persistent SSD -------------------------------------
-PERSIST_DEV="/dev/disk/by-id/google-$(meta persist_disk_id)"
-PERSIST_MNT="/mnt/persist"
+# -------- 0b.  Use root disk if no 'persist_disk_id'  ------------------
+PERSIST_ID="$(meta persist_disk_id || true)"
 
-if ! mountpoint -q "$PERSIST_MNT"; then
+if [[ -z "$PERSIST_ID" ]]; then
+  # No extra disk configured – just make sure the folder exists
+  mkdir -p /mnt/persist
+  logger -t startup-script ">> Using root disk for /mnt/persist"
+else
+  PERSIST_DEV="/dev/disk/by-id/google-$PERSIST_ID"
+  PERSIST_MNT="/mnt/persist"
   mkdir -p "$PERSIST_MNT"
-  # format only if brand-new
-  if ! blkid "$PERSIST_DEV" >/dev/null 2>&1; then
-    mkfs.ext4 -F "$PERSIST_DEV"
+
+  if mountpoint -q "$PERSIST_MNT"; then
+    logger -t startup-script ">> Persist disk already mounted – skipping"
+  else
+    if ! blkid "$PERSIST_DEV" >/dev/null 2>&1; then
+      mkfs.ext4 -F "$PERSIST_DEV"
+    fi
+    mount "$PERSIST_DEV" "$PERSIST_MNT"
   fi
-  mount "$PERSIST_DEV" "$PERSIST_MNT"
 fi
 
 # -------- 1. System packages (CUDA & PyTorch already on image) ---------
