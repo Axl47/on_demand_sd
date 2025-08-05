@@ -16,6 +16,7 @@ INSTANCE     = os.getenv("GCE_INSTANCE")
 ZONE         = os.getenv("GCE_ZONE")
 JOB_BUCKET   = os.getenv("JOB_BUCKET")        # e.g. gs://sd-jobs
 OUT_BUCKET   = os.getenv("OUT_BUCKET")        # e.g. gs://sd-outputs
+STARTUP_URL  =  os.getenv("STARTUP_URL")
 
 # ── helpers ──────────────────────────────────────────────────
 def signed_url(bucket, name, exp_minutes=20):
@@ -92,6 +93,7 @@ def render(req: RenderRequest):
 
     # 2) set per-boot metadata
     items = [
+        {"key": "startup-script-url", "value": STARTUP_URL},
         {"key": "job_workflow",  "value": f"{JOB_BUCKET}/{job_json}"},
         {"key": "model_uri",     "value": req.model_url},
         {"key": "output_bucket", "value": f"{OUT_BUCKET}/{job_prefix}"}
