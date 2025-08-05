@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import uuid, time, os, json, subprocess, tempfile
 from google.cloud import storage              # python-storage lib :contentReference[oaicite:4]{index=4}
 from googleapiclient import discovery         # compute API :contentReference[oaicite:5]{index=5}
+from datetime import timedelta
 
 app = FastAPI()
 gcs = storage.Client()
@@ -14,6 +15,13 @@ INSTANCE     = os.getenv("GCE_INSTANCE")
 ZONE         = os.getenv("GCE_ZONE")
 JOB_BUCKET   = os.getenv("JOB_BUCKET")
 OUT_BUCKET   = os.getenv("OUT_BUCKET")
+
+def signed_url(bucket, name, exp_minutes=20):
+    return gcs.bucket(bucket).blob(name).generate_signed_url(            # :contentReference[oaicite:3]{index=3}
+        version="v4",
+        expiration=timedelta(minutes=exp_minutes),
+        method="GET"
+    )
 
 class RenderRequest(BaseModel):
     prompt: str
@@ -78,9 +86,7 @@ def render(req: RenderRequest):
     files = []
     for blob in list_blobs(OUT_BUCKET, prefix=job_prefix):
         if blob.name.endswith((".png", ".jpg")):
-            local = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-            blob.download_to_filename(local.name)
-            files.append(local.name)
+            files.append(signed_url(bucket_name, blob.name))
 
     if not files:
         raise HTTPException(500, "No images produced")
