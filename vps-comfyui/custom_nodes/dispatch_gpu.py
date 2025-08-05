@@ -22,7 +22,7 @@ def build_workflow(prompt_txt: str,
             # 1 ▸ load checkpoint
             "1": {
                 "class_type": "CheckpointLoaderSimple",
-                "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"}
+                "inputs": {"ckpt_name": "Hassaku-XL-Illustrious.safetensors"}
             },
 
             # 2 ▸ KSampler (model-agnostic)
