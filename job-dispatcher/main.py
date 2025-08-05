@@ -4,10 +4,11 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from datetime import timedelta
-import uuid, time, os, json
+import uuid, time, os, json, logging
 
 from google.cloud import storage
 from googleapiclient import discovery
+from googleapiclient.errors import HttpError
 
 app      = FastAPI()
 gcs      = storage.Client()
@@ -47,28 +48,55 @@ def list_blobs(bucket_uri, prefix):
     return gcs.bucket(bucket_name).list_blobs(prefix=prefix)
 
 def push_metadata(items):
-    """Overwrite *all* VM metadata items in one optimistic-locking call."""
-    inst = compute.instances().get(project=PROJECT,
-                                   zone=ZONE,
-                                   instance=INSTANCE).execute()
-    fp   = inst["metadata"]["fingerprint"]
-    body = {"fingerprint": fp, "items": items}
+    """Overwrite *all* VM metadata items in one optimistic-locking call with retry logic."""
+    max_retries = 5
+    base_delay = 1.0
+    
+    for attempt in range(max_retries):
+        try:
+            # Get current instance metadata
+            inst = compute.instances().get(project=PROJECT,
+                                         zone=ZONE,
+                                         instance=INSTANCE).execute()
+            fp   = inst["metadata"]["fingerprint"]
+            body = {"fingerprint": fp, "items": items}
 
-    op = compute.instances() \
-            .setMetadata(project=PROJECT, zone=ZONE,
-                         instance=INSTANCE, body=body) \
-            .execute()
+            # Set metadata
+            op = compute.instances() \
+                    .setMetadata(project=PROJECT, zone=ZONE,
+                                 instance=INSTANCE, body=body) \
+                    .execute()
 
-    # wait until set-metadata operation is DONE
-    while True:
-        res = compute.zoneOperations() \
-                     .get(project=PROJECT, zone=ZONE,
-                          operation=op["name"]).execute()
-        if res.get("status") == "DONE":
-            if "error" in res:
-                raise RuntimeError(res["error"])
-            break
-        time.sleep(1)
+            # Wait until set-metadata operation is DONE
+            while True:
+                res = compute.zoneOperations() \
+                             .get(project=PROJECT, zone=ZONE,
+                                  operation=op["name"]).execute()
+                if res.get("status") == "DONE":
+                    if "error" in res:
+                        raise RuntimeError(res["error"])
+                    return  # Success, exit function
+                time.sleep(1)
+                
+        except HttpError as e:
+            # Retry on transient GCP errors
+            if e.resp.status in [503, 429, 500, 502, 504]:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logging.warning(f"GCP API error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {delay}s...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logging.error(f"Max retries exceeded for GCP API call: {e}")
+                    raise
+            else:
+                # Re-raise non-transient errors immediately
+                logging.error(f"Non-transient GCP API error: {e}")
+                raise
+        except Exception as e:
+            # Re-raise other exceptions immediately
+            logging.error(f"Unexpected error in push_metadata: {e}")
+            raise
 
 # ── request schema ───────────────────────────────────────────
 class RenderRequest(BaseModel):
