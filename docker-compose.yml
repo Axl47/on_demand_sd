@@ -27,8 +27,8 @@ services:
       - "${DISPATCHER_PORT:-8187}:8187"
     volumes:
       - ./job-dispatcher:/app
-      - home/axor/.config/gcloud:/root/.config/gcloud:ro
-      - home/axor/.secrets/sa-key.json:/tmp/sa-key.json:ro
+      - /home/axor/.config/gcloud:/root/.config/gcloud:ro
+      - /home/axor/.secrets/sa-key.json:/tmp/sa-key.json:ro
     working_dir: /app
     environment:
       - GCP_PROJECT=${GCP_PROJECT}
