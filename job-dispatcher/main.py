@@ -29,11 +29,18 @@ class RenderRequest(BaseModel):
     sampler: str = "euler"
     steps: int = 30
 
-# -- helper ------------------------------------------------------------
+def bucket_and_key(uri: str):
+    # gs://my-bucket/optional/prefix/ -> ("my-bucket", "optional/prefix/")
+    path = uri.replace("gs://", "")
+    parts = path.split("/", 1)
+    bucket = parts[0]
+    prefix = parts[1] + "/" if len(parts) == 2 else ""
+    return bucket, prefix
+
 def upload_json(bucket_uri: str, blob_name: str, data: dict):
-    bucket_name = bucket_uri.replace("gs://", "")
+    bucket_name, prefix = bucket_and_key(bucket_uri)
     bucket = gcs.bucket(bucket_name)
-    blob   = bucket.blob(blob_name)
+    blob   = bucket.blob(prefix + blob_name)
     blob.upload_from_string(json.dumps(data), content_type="application/json")
 
 def list_blobs(bucket_uri, prefix):
