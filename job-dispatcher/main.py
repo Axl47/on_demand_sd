@@ -77,19 +77,25 @@ class RenderRequest(BaseModel):
 # ── main endpoint ────────────────────────────────────────────
 @app.post("/render")
 def render(req: RenderRequest):
-    job_id      = str(uuid.uuid4())
-    job_prefix  = f"{job_id}/"
-    job_json    = f"{job_id}.json"
+    job_id     = str(uuid.uuid4())
+    job_prefix = f"{job_id}/"
 
-    # 1) build & upload workflow JSON
-    workflow = {
-        "prompt": req.prompt,
-        "sampler": req.sampler,
-        "steps":   req.steps,
-        "client_id": job_id,
-        "output_path": "/tmp/comfy-out"
-    }
-    upload_json(JOB_BUCKET, job_json, workflow)
+    # 1) start from a template you bundled with your service
+    tmpl = json.load(open("base_workflow.json"))
+
+    # 2) edit just the fields the user can change
+    ksampler = tmpl["prompt"]["1"]["inputs"]
+    ksampler["steps"]        = req.steps
+    ksampler["sampler_name"] = req.sampler
+
+    # optional text-encoder node if you have one
+    # tmpl["prompt"]["TXT"]["inputs"]["text"] = req.prompt
+
+    tmpl["client_id"]   = job_id
+    tmpl["output_path"] = "/tmp/comfy-out"
+
+    # 3) upload
+    upload_json(JOB_BUCKET, f"{job_id}.json", tmpl)
 
     # 2) set per-boot metadata
     items = [
