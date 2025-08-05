@@ -16,7 +16,6 @@ services:
       - COMFYUI_DISABLE_CUDA=1
       - API_KEY=${API_KEY}
       - DISPATCHER_URL=${DISPATCHER_URL}
-      - STARTUP_URL=${STARTUP_URL}
     restart: unless-stopped
     networks:
       - sd-network
@@ -41,6 +40,7 @@ services:
       - GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json
       - DISPATCHER_URL=${DISPATCHER_URL}
       - STARTUP_URL=${STARTUP_URL}
+      - PERSIST_DISK_ID=${PERSIST_DISK_ID}
     command: |
       sh -c "pip install -r requirements.txt 2>/dev/null || pip install fastapi uvicorn google-cloud-storage google-api-python-client && 
              uvicorn main:app --host 0.0.0.0 --port 8187"

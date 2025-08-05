@@ -11,12 +11,13 @@ gcs      = storage.Client()
 compute  = discovery.build("compute", "v1")
 
 # ── static env ───────────────────────────────────────────────
-PROJECT      = os.getenv("GCP_PROJECT")
-INSTANCE     = os.getenv("GCE_INSTANCE")
-ZONE         = os.getenv("GCE_ZONE")
-JOB_BUCKET   = os.getenv("JOB_BUCKET")        # e.g. gs://sd-jobs
-OUT_BUCKET   = os.getenv("OUT_BUCKET")        # e.g. gs://sd-outputs
-STARTUP_URL  = os.getenv("STARTUP_URL")
+PROJECT          = os.getenv("GCP_PROJECT")
+INSTANCE         = os.getenv("GCE_INSTANCE")
+ZONE             = os.getenv("GCE_ZONE")
+JOB_BUCKET       = os.getenv("JOB_BUCKET")        # e.g. gs://sd-jobs
+OUT_BUCKET       = os.getenv("OUT_BUCKET")        # e.g. gs://sd-outputs
+STARTUP_URL      = os.getenv("STARTUP_URL")
+PERSIST_DISK_ID  = os.getenv("PERSIST_DISK_ID")
 
 # ── helpers ──────────────────────────────────────────────────
 def signed_url(bucket, name, exp_minutes=20):
@@ -93,6 +94,7 @@ def render(req: RenderRequest):
 
     # 2) set per-boot metadata
     items = [
+        {"key": "persist_disk_id", "value": PERSIST_DISK_ID},
         {"key": "startup-script-url", "value": STARTUP_URL},
         {"key": "job_workflow",  "value": f"{JOB_BUCKET}/{job_json}"},
         {"key": "model_uri",     "value": req.model_url},
