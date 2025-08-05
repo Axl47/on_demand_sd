@@ -34,7 +34,7 @@ class DispatchToGPU:
 
         # --- call the dispatcher -------------------------------------------------
         try:
-            r = requests.post(DISPATCHER_URL, json=payload, timeout=15)
+            r = requests.post(DISPATCHER_URL, json=payload, timeout=60)
             r.raise_for_status()
             job = r.json()
         except Exception as e:
