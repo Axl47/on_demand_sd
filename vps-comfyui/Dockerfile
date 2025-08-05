@@ -6,7 +6,7 @@ FROM python:3.11-slim
 # 1. Basic build tools + runtime libs
 RUN apt-get update -qq && \
   apt-get install -y --no-install-recommends \
-  git build-essential libgl1 libglib2.0-0 ffmpeg && \
+  git build-essential libgl1 libglib2.0-0 ffmpeg curl && \
   rm -rf /var/lib/apt/lists/*
 
 # 2. Latest CPU-only PyTorch stack (auto-selects compatible versions)
