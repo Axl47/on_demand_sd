@@ -12,26 +12,9 @@ MODEL_URI="$(meta model_uri)"            # gs://…/model.safetensors  OR  https
 OUT_BUCKET="$(meta output_bucket)"       # gs://…/outputs/job-id/
 
 # -------- 0b.  Use root disk if no 'persist_disk_id'  ------------------
-PERSIST_ID="$(meta persist_disk_id || true)"
-
-if [[ -z "$PERSIST_ID" ]]; then
-  # No extra disk configured – just make sure the folder exists
-  mkdir -p /mnt/persist
-  logger -t startup-script ">> Using root disk for /mnt/persist"
-else
-  PERSIST_DEV="/dev/disk/by-id/google-$PERSIST_ID"
-  PERSIST_MNT="/mnt/persist"
-  mkdir -p "$PERSIST_MNT"
-
-  if mountpoint -q "$PERSIST_MNT"; then
-    logger -t startup-script ">> Persist disk already mounted – skipping"
-  else
-    if ! blkid "$PERSIST_DEV" >/dev/null 2>&1; then
-      mkfs.ext4 -F "$PERSIST_DEV"
-    fi
-    mount "$PERSIST_DEV" "$PERSIST_MNT"
-  fi
-fi
+# No extra disk configured – just make sure the folder exists
+mkdir -p /mnt/persist
+logger -t startup-script ">> Using root disk for /mnt/persist"
 
 # -------- 1. System packages (CUDA & PyTorch already on image) ---------
 apt-get update -qq
