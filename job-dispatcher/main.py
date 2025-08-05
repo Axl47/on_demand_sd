@@ -1,124 +1,110 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from datetime import timedelta
-import uuid, time, os, json
+# /opt/ComfyUI/custom_nodes/dispatch_gpu.py
+import os, json, uuid, time, tempfile, requests, pathlib
 
-from google.cloud import storage
-from googleapiclient import discovery
+DISPATCHER_URL = os.getenv("DISPATCHER_URL") or "http://dispatcher:8187/render"
 
-app = FastAPI()
-gcs      = storage.Client()
-compute  = discovery.build("compute", "v1")
+# ───────────────────────── Helpers ────────────────────────────────────
+def build_workflow(prompt_txt: str,
+                   sampler   : str,
+                   steps     : int,
+                   job_id    : str) -> dict:
+    """
+    Return a *full* ComfyUI API-style workflow JSON.
+    """
+    return {
+        "prompt": {
+            # 0 ▸ blank latent
+            "0": {
+                "class_type": "EmptyLatentImage",
+                "inputs": {"width": 1024, "height": 1024}
+            },
 
-# ── static env ───────────────────────────────────────────────
-PROJECT          = os.getenv("GCP_PROJECT")
-INSTANCE         = os.getenv("GCE_INSTANCE")
-ZONE             = os.getenv("GCE_ZONE")
-JOB_BUCKET       = os.getenv("JOB_BUCKET")        # e.g. gs://sd-jobs
-OUT_BUCKET       = os.getenv("OUT_BUCKET")        # e.g. gs://sd-outputs
-STARTUP_URL      = os.getenv("STARTUP_URL")
+            # 1 ▸ load checkpoint
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {"ckpt_name": "Hassaku-XL-Illustrious.safetensors"}
+            },
 
-# ── helpers ──────────────────────────────────────────────────
-def signed_url(bucket, name, exp_minutes=20):
-    return (
-        gcs.bucket(bucket)
-        .blob(name)
-        .generate_signed_url(version="v4",
-                             expiration=timedelta(minutes=exp_minutes),
-                             method="GET")
-    )
+            # 2 ▸ KSampler (model-agnostic)
+            "2": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model"        : ["1", 0],
+                    "latent_image" : ["0", 0],
+                    "steps"        : steps,
+                    "sampler_name" : sampler
+                }
+            },
 
-def bucket_and_key(uri: str):
-    path = uri.replace("gs://", "")
-    parts  = path.split("/", 1)
-    bucket = parts[0]
-    prefix = parts[1] + "/" if len(parts) == 2 else ""
-    return bucket, prefix
-
-def upload_json(bucket_uri: str, blob_name: str, data: dict):
-    bucket_name, prefix = bucket_and_key(bucket_uri)
-    blob = gcs.bucket(bucket_name).blob(prefix + blob_name)
-    blob.upload_from_string(json.dumps(data), content_type="application/json")
-
-def list_blobs(bucket_uri, prefix):
-    bucket_name = bucket_uri.replace("gs://", "")
-    return gcs.bucket(bucket_name).list_blobs(prefix=prefix)
-
-def push_metadata(items):
-    """Set VM metadata with optimistic-locking fingerprint."""
-    inst = compute.instances().get(
-        project=PROJECT, zone=ZONE, instance=INSTANCE
-    ).execute()
-    fp = inst["metadata"]["fingerprint"]
-    body = {"fingerprint": fp, "items": items}
-
-    op = compute.instances().setMetadata(
-        project=PROJECT, zone=ZONE, instance=INSTANCE, body=body
-    ).execute()
-
-    # Simple wait loop until the set-metadata operation is DONE
-    while True:
-        result = compute.zoneOperations().get(
-            project=PROJECT, zone=ZONE, operation=op["name"]
-        ).execute()
-        if result.get("status") == "DONE":
-            if "error" in result:
-                raise RuntimeError(result["error"])
-            break
-        time.sleep(1)
-
-# ── request schema ───────────────────────────────────────────
-class RenderRequest(BaseModel):
-    prompt: str
-    model_url: str   # civitai or gs://…
-    sampler: str = "euler"
-    steps:   int = 30
-
-# ── main endpoint ────────────────────────────────────────────
-@app.post("/render")
-def render(req: RenderRequest):
-    job_id      = str(uuid.uuid4())
-    job_prefix  = f"{job_id}/"
-    job_json    = f"{job_id}.json"
-
-    # 1) build & upload workflow JSON
-    workflow = {
-        "prompt": req.prompt,
-        "sampler": req.sampler,
-        "steps":   req.steps,
+            # 3 ▸ save result
+            "3": {
+                "class_type": "SaveImage",
+                "inputs": {
+                    "images": ["2", 0],
+                    "filename_prefix": f"job_{job_id}"
+                }
+            }
+        },
         "client_id": job_id,
         "output_path": "/tmp/comfy-out"
     }
-    upload_json(JOB_BUCKET, job_json, workflow)
 
-    # 2) set per-boot metadata
-    items = [
-        {"key": "startup-script-url", "value": STARTUP_URL},
-        {"key": "job_workflow",  "value": f"{JOB_BUCKET}/{job_json}"},
-        {"key": "model_uri",     "value": req.model_url},
-        {"key": "output_bucket", "value": f"{OUT_BUCKET}/{job_prefix}"}
-    ]
-    push_metadata(items)
+# ───────────────────────── Custom node ────────────────────────────────
+class DispatchToGPU:
+    """
+    Submit a full workflow to the GPU dispatcher and return a thumbnail PNG.
+    """
 
-    # 3) start the GPU VM (no body!)
-    compute.instances().start(
-        project=PROJECT, zone=ZONE, instance=INSTANCE
-    ).execute()
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "PROMPT"    : ("STRING",  {"multiline": True}),
+                "MODEL_URL" : ("STRING",  {"default": ""}),
+                "SAMPLER"   : ("STRING",  {"default": "euler"}),
+                "STEPS"     : ("INT",     {"default": 30, "min": 1, "max": 150})
+            }
+        }
 
-    # 4) wait for DONE.flag
-    flag_blob = gcs.bucket(OUT_BUCKET.replace("gs://", "")).blob(f"{job_prefix}DONE.flag")
-    while not flag_blob.exists():
-        time.sleep(5)
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION     = "run"
+    CATEGORY     = "Utility / Dispatch"
 
-    # 5) collect PNG/JPG URLs (signed, 20-min expiry)
-    bucket_name = OUT_BUCKET.replace("gs://", "")
-    files = [
-        signed_url(bucket_name, b.name)
-        for b in list_blobs(OUT_BUCKET, prefix=job_prefix)
-        if b.name.endswith((".png", ".jpg"))
-    ]
+    # ── core ───────────────────────────────────────────────────────────
+    def run(self, PROMPT, MODEL_URL="", SAMPLER="euler", STEPS=30):
+        job_id  = str(uuid.uuid4())
+        payload = {
+            "prompt"    : PROMPT,
+            "model_url" : MODEL_URL,
+            "sampler"   : SAMPLER,
+            "steps"     : int(STEPS)
+        }
 
-    if not files:
-        raise HTTPException(500, "No images produced")
+        # Submit to dispatcher
+        try:
+            resp = requests.post(DISPATCHER_URL,
+                                 json=payload,
+                                 timeout=300)
+            resp.raise_for_status()
+            job = resp.json()
+        except Exception as e:
+            raise RuntimeError(f"Dispatcher error: {e}")
 
-    return {"job_id": job_id, "files": files}
+        # Grab first PNG (signed URLs list)
+        try:
+            png_url  = job["files"][0]
+            png_data = requests.get(png_url, timeout=60).content
+        except Exception:
+            # 1×1 pixel fallback
+            png_data = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+                        b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+                        b"\x00\x00\x00\nIDATx\xdac\xf8\x0f\x00\x01\x01\x01\x00"
+                        b"\x18\xdd\x8a\xe5\x00\x00\x00\x00IEND\xaeB`\x82")
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        tmp.write(png_data)
+        tmp.close()
+        return (tmp.name,)
+
+# ───────────────── register ───────────────────────────────────────────
+NODE_CLASS_MAPPINGS = {"DispatchToGPU": DispatchToGPU}
