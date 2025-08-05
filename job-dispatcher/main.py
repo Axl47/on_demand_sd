@@ -16,7 +16,7 @@ INSTANCE     = os.getenv("GCE_INSTANCE")
 ZONE         = os.getenv("GCE_ZONE")
 JOB_BUCKET   = os.getenv("JOB_BUCKET")        # e.g. gs://sd-jobs
 OUT_BUCKET   = os.getenv("OUT_BUCKET")        # e.g. gs://sd-outputs
-STARTUP_URL  =  os.getenv("STARTUP_URL")
+STARTUP_URL  = os.getenv("STARTUP_URL")
 
 # ── helpers ──────────────────────────────────────────────────
 def signed_url(bucket, name, exp_minutes=20):

@@ -16,6 +16,7 @@ services:
       - COMFYUI_DISABLE_CUDA=1
       - API_KEY=${API_KEY}
       - DISPATCHER_URL=${DISPATCHER_URL}
+      - STARTUP_URL=${STARTUP_URL}
     restart: unless-stopped
     networks:
       - sd-network
