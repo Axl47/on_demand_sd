@@ -10,22 +10,43 @@ def build_workflow(prompt_txt: str, sampler: str, steps: int, ckpt: str, job_id:
         "prompt": {
             # 0 ▸ blank latent
             "0": {"class_type": "EmptyLatentImage",
-                  "inputs": {"width": 1024, "height": 1024}},
+                  "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
 
             # 1 ▸ load checkpoint
             "1": {"class_type": "CheckpointLoaderSimple",
                   "inputs": {"ckpt_name": ckpt}},
 
-            # 2 ▸ KSampler
-            "2": {"class_type": "KSampler",
-                  "inputs": {"model": ["1", 0],
-                             "latent_image": ["0", 0],
-                             "steps": steps,
-                             "sampler_name": sampler}},
+            # 2 ▸ CLIP Text Encode (Positive)
+            "2": {"class_type": "CLIPTextEncode",
+                  "inputs": {"text": prompt_txt,
+                             "clip": ["1", 1]}},
 
-            # 3 ▸ save
-            "3": {"class_type": "SaveImage",
-                  "inputs": {"images": ["2", 0],
+            # 3 ▸ CLIP Text Encode (Negative)
+            "3": {"class_type": "CLIPTextEncode",
+                  "inputs": {"text": "",
+                             "clip": ["1", 1]}},
+
+            # 4 ▸ KSampler
+            "4": {"class_type": "KSampler",
+                  "inputs": {"model": ["1", 0],
+                             "positive": ["2", 0],
+                             "negative": ["3", 0],
+                             "latent_image": ["0", 0],
+                             "seed": 156680208700286,
+                             "steps": steps,
+                             "cfg": 8.0,
+                             "sampler_name": sampler,
+                             "scheduler": "normal",
+                             "denoise": 1.0}},
+
+            # 5 ▸ VAE Decode
+            "5": {"class_type": "VAEDecode",
+                  "inputs": {"samples": ["4", 0],
+                             "vae": ["1", 2]}},
+
+            # 6 ▸ save
+            "6": {"class_type": "SaveImage",
+                  "inputs": {"images": ["5", 0],
                              "filename_prefix": f"job_{job_id}"}}
         },
         "client_id": job_id,

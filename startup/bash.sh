@@ -98,9 +98,20 @@ WF        = pathlib.Path(os.environ["WORKFLOW_JSON"])
 OUT_DIR   = pathlib.Path("/tmp/comfy-out")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-payload = json.load(WF.open())
-payload.setdefault("client_id", str(uuid.uuid4()))
-payload.setdefault("output_path", str(OUT_DIR))
+# Load the workflow JSON from the dispatcher
+workflow_data = json.load(WF.open())
+
+# Extract the prompt (nodes) and client_id
+# The dispatcher sends: {"prompt": {...nodes...}, "client_id": "...", "output_path": "..."}
+# ComfyUI expects: {"prompt": {...nodes...}, "client_id": "..."}
+prompt_nodes = workflow_data.get("prompt", {})
+client_id = workflow_data.get("client_id", str(uuid.uuid4()))
+
+# Build the correct payload for ComfyUI API
+payload = {
+    "prompt": prompt_nodes,
+    "client_id": client_id
+}
 
 r = requests.post("http://127.0.0.1:8188/prompt", json=payload, timeout=300)
 r.raise_for_status()
