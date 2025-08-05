@@ -1,7 +1,7 @@
 # /opt/ComfyUI/custom_nodes/dispatch_gpu.py
 import os, json, uuid, time, tempfile, requests, pathlib
 
-DISPATCHER_URL = os.getenv("DISPATCHER_URL", "http://dispatcher:8187/render")
+DISPATCHER_URL = os.getenv("DISPATCHER_URL", "http://localhost:8187")
 
 class DispatchToGPU:
     """
