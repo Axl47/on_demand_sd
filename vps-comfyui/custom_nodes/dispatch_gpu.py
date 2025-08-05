@@ -1,7 +1,7 @@
 # /opt/ComfyUI/custom_nodes/dispatch_gpu.py
 import os, json, uuid, time, tempfile, requests, pathlib
 
-DISPATCHER_URL = os.getenv("DISPATCHER_URL", "http://localhost:8187")
+DISPATCHER_URL = os.getenv("DISPATCHER_URL")
 
 class DispatchToGPU:
     """
@@ -34,7 +34,7 @@ class DispatchToGPU:
 
         # --- call the dispatcher -------------------------------------------------
         try:
-            r = requests.post(DISPATCHER_URL + "/render", json=payload, timeout=15)
+            r = requests.post(DISPATCHER_URL, json=payload, timeout=15)
             r.raise_for_status()
             job = r.json()
         except Exception as e:
