@@ -100,7 +100,7 @@ def render(req: RenderRequest):
     # 2) set per-boot metadata
     items = [
         {"key": "startup-script-url", "value": STARTUP_URL},
-        {"key": "job_workflow",  "value": f"{JOB_BUCKET}/{job_json}"},
+        {"key": "job_workflow",  "value": f"{JOB_BUCKET}/{job_id}.json"},
         {"key": "model_uri",     "value": req.model_url},
         {"key": "output_bucket", "value": f"{OUT_BUCKET}/{job_prefix}"}
     ]
