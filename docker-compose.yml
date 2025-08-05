@@ -28,7 +28,7 @@ services:
     volumes:
       - ./job-dispatcher:/app
       - ~/.config/gcloud:/root/.config/gcloud:ro
-      - ./job-dispatcher/sa-key.json:/tmp/sa-key.json:ro
+      - ~/.secrets/sa-key.json:/tmp/sa-key.json:ro
     working_dir: /app
     environment:
       - GCP_PROJECT=${GCP_PROJECT}
