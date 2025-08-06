@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import axios from 'axios';
+import { setAuthToken } from '@/lib/auth-client';
 
 export default function Login() {
   const [password, setPassword] = useState('');
@@ -14,14 +15,32 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const response = await axios.post('/api/auth/login', { password });
-      console.log('Login response:', response.data);
+      // Try the alternative login method first
+      const response = await axios.post('/api/auth/login-alt', { password });
+      console.log('Login response (alt):', response.data);
       
-      // Force a hard redirect to ensure cookies are properly set
-      window.location.href = '/';
+      if (response.data.token) {
+        // Store token in localStorage
+        setAuthToken(response.data.token);
+        console.log('Token stored in localStorage');
+        
+        // Force a hard redirect
+        window.location.href = '/';
+      } else {
+        setError('Login failed - no token received');
+      }
     } catch (err: any) {
-      console.error('Login error:', err);
-      setError(err.response?.data?.error || 'Login failed');
+      console.error('Login error (alt):', err);
+      
+      // Fallback to cookie-based login
+      try {
+        const fallbackResponse = await axios.post('/api/auth/login', { password });
+        console.log('Fallback login response:', fallbackResponse.data);
+        window.location.href = '/';
+      } catch (fallbackErr: any) {
+        console.error('Fallback login error:', fallbackErr);
+        setError(fallbackErr.response?.data?.error || 'Login failed');
+      }
     } finally {
       setLoading(false);
     }
