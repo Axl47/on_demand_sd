@@ -61,6 +61,80 @@ export default function Home() {
     };
   }, [instanceStatus?.status]);
 
+  // Focus management and keyboard forwarding for ComfyUI iframe
+  // This MUST be before any early returns to follow React's Rules of Hooks
+  useEffect(() => {
+    // Check if we have what we need
+    const isRunning = instanceStatus?.status === 'RUNNING';
+    
+    if (!isRunning) {
+      setIframeFocused(false);
+      return;
+    }
+
+    // Common ComfyUI keyboard shortcuts
+    const comfyuiShortcuts = new Set([
+      'KeyA', 'KeyC', 'KeyV', 'KeyZ', 'KeyY', 'KeyS', 'KeyG', 'KeyR', 
+      'Delete', 'Backspace', 'Space', 'Enter', 'Escape', 'Tab',
+      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'
+    ]);
+
+    // Forward keyboard events to iframe
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const iframe = iframeRef.current;
+      if (!iframe || !iframe.contentWindow) return;
+
+      // Check if this is a ComfyUI shortcut
+      const isComfyUIShortcut = comfyuiShortcuts.has(e.code) || 
+                               (e.ctrlKey && comfyuiShortcuts.has(e.code)) ||
+                               (e.altKey && comfyuiShortcuts.has(e.code)) ||
+                               (e.shiftKey && comfyuiShortcuts.has(e.code));
+      
+      if (isComfyUIShortcut) {
+        try {
+          // Focus the iframe first
+          iframe.contentWindow.focus();
+          setIframeFocused(true);
+          
+          // For critical shortcuts, prevent parent handling
+          if ((e.ctrlKey && ['KeyA', 'KeyC', 'KeyV', 'KeyZ'].includes(e.code))) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        } catch (err) {
+          console.log('Could not forward keyboard event:', err);
+        }
+      }
+    };
+
+    // Handle clicks outside iframe to refocus
+    const handleDocumentClick = (e: MouseEvent) => {
+      const iframe = iframeRef.current;
+      if (iframe && !iframe.contains(e.target as Node)) {
+        // Click was outside iframe, refocus it after a brief delay
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            setIframeFocused(true);
+          } catch (e) {
+            console.log('Could not focus iframe');
+          }
+        }, 10);
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('click', handleDocumentClick);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('click', handleDocumentClick);
+    };
+  }, [instanceStatus?.status]);
+
   const checkAuth = async () => {
     try {
       // First check localStorage token
@@ -176,76 +250,6 @@ export default function Home() {
 
   const isRunning = instanceStatus?.status === 'RUNNING';
   const isTransitioning = ['STOPPING', 'PROVISIONING', 'STAGING'].includes(instanceStatus?.status || '');
-
-  // Focus management and keyboard forwarding for ComfyUI iframe
-  useEffect(() => {
-    if (!isRunning) {
-      setIframeFocused(false);
-      return;
-    }
-
-    // Common ComfyUI keyboard shortcuts
-    const comfyuiShortcuts = new Set([
-      'KeyA', 'KeyC', 'KeyV', 'KeyZ', 'KeyY', 'KeyS', 'KeyG', 'KeyR', 
-      'Delete', 'Backspace', 'Space', 'Enter', 'Escape', 'Tab',
-      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'
-    ]);
-
-    // Forward keyboard events to iframe
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const iframe = iframeRef.current;
-      if (!iframe || !iframe.contentWindow) return;
-
-      // Check if this is a ComfyUI shortcut
-      const isComfyUIShortcut = comfyuiShortcuts.has(e.code) || 
-                               (e.ctrlKey && comfyuiShortcuts.has(e.code)) ||
-                               (e.altKey && comfyuiShortcuts.has(e.code)) ||
-                               (e.shiftKey && comfyuiShortcuts.has(e.code));
-      
-      if (isComfyUIShortcut) {
-        try {
-          // Focus the iframe first
-          iframe.contentWindow.focus();
-          setIframeFocused(true);
-          
-          // For critical shortcuts, prevent parent handling
-          if ((e.ctrlKey && ['KeyA', 'KeyC', 'KeyV', 'KeyZ'].includes(e.code))) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
-        } catch (err) {
-          console.log('Could not forward keyboard event:', err);
-        }
-      }
-    };
-
-    // Handle clicks outside iframe to refocus
-    const handleDocumentClick = (e: MouseEvent) => {
-      const iframe = iframeRef.current;
-      if (iframe && !iframe.contains(e.target as Node)) {
-        // Click was outside iframe, refocus it after a brief delay
-        setTimeout(() => {
-          try {
-            iframe.contentWindow?.focus();
-            setIframeFocused(true);
-          } catch (e) {
-            console.log('Could not focus iframe');
-          }
-        }, 10);
-      }
-    };
-
-    // Add event listeners
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('click', handleDocumentClick);
-
-    // Cleanup
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('click', handleDocumentClick);
-    };
-  }, [isRunning]);
 
   // Debug logging
   console.log('Instance Status:', instanceStatus);
