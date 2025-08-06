@@ -14,9 +14,13 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await axios.post('/api/auth/login', { password });
-      router.push('/');
+      const response = await axios.post('/api/auth/login', { password });
+      console.log('Login response:', response.data);
+      
+      // Force a hard redirect to ensure cookies are properly set
+      window.location.href = '/';
     } catch (err: any) {
+      console.error('Login error:', err);
       setError(err.response?.data?.error || 'Login failed');
     } finally {
       setLoading(false);

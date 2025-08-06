@@ -41,8 +41,9 @@ export function login(password: string, res: NextApiResponse): boolean {
       res,
       maxAge: 60 * 60 * 24, // 24 hours
       httpOnly: true,
-      sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax', // Changed from 'strict' to 'lax' for reverse proxy compatibility
+      secure: false, // Disable secure for now since we're behind reverse proxy
+      path: '/', // Explicitly set path
     });
     return true;
   }
@@ -50,5 +51,8 @@ export function login(password: string, res: NextApiResponse): boolean {
 }
 
 export function logout(res: NextApiResponse): void {
-  deleteCookie('auth-token', { res });
+  deleteCookie('auth-token', { 
+    res,
+    path: '/', // Match the path used when setting the cookie
+  });
 }
