@@ -1,58 +1,50 @@
 services:
-  # ComfyUI Service (CPU-only for local development)
-  comfyui:
+  # Frontend - ComfyUI Controller
+  frontend:
     build:
-      context: ./vps-comfyui
+      context: ./frontend
       dockerfile: Dockerfile
-    container_name: comfy-ui-cpu
+    container_name: comfyui-frontend
     ports:
-      - "${COMFY_PORT:-8188}:${COMFY_PORT:-8188}"
-    volumes:
-      # Model and output persistence
-      - ./vps-comfyui/models:/root/.cache/comfyui/ComfyUI/models:rw
-      - ./vps-comfyui/outputs:/root/.cache/comfyui/ComfyUI/output:rw
-      - ./vps-comfyui/custom_nodes/:/opt/ComfyUI/custom_nodes
+      - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      - COMFYUI_DISABLE_CUDA=1
-      - API_KEY=${API_KEY}
-      - DISPATCHER_URL=${DISPATCHER_URL}
+      - DISPATCHER_URL=http://dispatcher:8187
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-comfyui123}
+      - GCE_COMFYUI_URL=${GCE_COMFYUI_URL}
+    depends_on:
+      - dispatcher
     restart: unless-stopped
     networks:
-      - sd-network
+      - comfyui-network
 
-  # Job Dispatcher Service
+  # Instance Manager (formerly Job Dispatcher)
   dispatcher:
     image: python:3.10-slim
-    container_name: sd-dispatcher
+    container_name: comfyui-dispatcher
     ports:
       - "${DISPATCHER_PORT:-8187}:8187"
     volumes:
       - ./job-dispatcher:/app
-      - /home/axor/.config/gcloud:/root/.config/gcloud:ro
-      - /home/axor/.secrets/sa-key.json:/tmp/sa-key.json:ro
+      - ${GCP_CREDENTIALS_PATH:-/home/axor/.config/gcloud}:/root/.config/gcloud:ro
+      - ${SERVICE_ACCOUNT_KEY:-/home/axor/.secrets/sa-key.json}:/tmp/sa-key.json:ro
     working_dir: /app
     environment:
       - GCP_PROJECT=${GCP_PROJECT}
-      - GCE_INSTANCE=${GCE_INSTANCE:-gpu-sd-worker}
+      - GCE_INSTANCE=${GCE_INSTANCE:-comfyui-gpu}
       - GCE_ZONE=${GCE_ZONE:-us-central1-a}
-      - JOB_BUCKET=${JOB_BUCKET:-gs://SD_JOBS}
-      - OUT_BUCKET=${OUT_BUCKET:-gs://SD_OUTPUTS}
       - GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json
-      - DISPATCHER_URL=${DISPATCHER_URL}
-      - STARTUP_URL=${STARTUP_URL}
+      - STARTUP_SCRIPT_URL=${STARTUP_SCRIPT_URL}
+      - ALLOWED_IP=${ALLOWED_IP}
+      - COMFYUI_AUTH_USER=${COMFYUI_AUTH_USER:-admin}
+      - COMFYUI_AUTH_PASS=${COMFYUI_AUTH_PASS:-comfyui123}
     command: |
-      sh -c "pip install -r requirements.txt 2>/dev/null || pip install fastapi uvicorn google-cloud-storage google-api-python-client && 
-             uvicorn main:app --host 0.0.0.0 --port 8187"
+      sh -c "pip install -r requirements.txt && 
+             python instance_manager.py"
     restart: unless-stopped
     networks:
-      - sd-network
+      - comfyui-network
 
 networks:
-  sd-network:
+  comfyui-network:
     driver: bridge
-
-volumes:
-  comfyui_models:
-    driver: local
-  comfyui_outputs:
-    driver: local
