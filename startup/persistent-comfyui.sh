@@ -14,7 +14,12 @@ ALLOWED_IP="$(meta allowed_ip)"
 AUTH_USER="$(meta auth_user || echo 'admin')"
 AUTH_PASS="$(meta auth_pass || echo 'comfyui123')"
 DOMAIN_NAME="$(meta domain_name)"  # Domain for SSL certificate
-EMAIL="$(meta ssl_email)"          # Email for Let's Encrypt
+EMAIL_RAW="$(meta ssl_email 2>/dev/null)"
+EMAIL=""
+# Only set email if it doesn't contain HTML (404 error)
+if [[ -n "$EMAIL_RAW" && ! "$EMAIL_RAW" =~ "<!DOCTYPE" ]]; then
+    EMAIL="$EMAIL_RAW"
+fi
 CF_CERT_PATH="$(meta cf_cert_path)"  # Path to Cloudflare origin certificate
 CF_KEY_PATH="$(meta cf_key_path)"    # Path to Cloudflare origin private key
 
@@ -414,4 +419,23 @@ if [[ ! -d "$MODEL_DIR/checkpoints" ]] || [[ -z "$(ls -A $MODEL_DIR/checkpoints 
 fi
 
 logger -t startup-script ">> Persistent ComfyUI setup complete!"
-logger -t startup-script ">> Access at http://$(curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H "Metadata-Flavor: Google")"
+
+# Final status logging
+EXTERNAL_IP=$(curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H "Metadata-Flavor: Google")
+if [[ -n "$DOMAIN_NAME" ]]; then
+    logger -t startup-script ">> ComfyUI available at: https://$DOMAIN_NAME"
+else
+    logger -t startup-script ">> ComfyUI available at: http://$EXTERNAL_IP"
+fi
+
+# Verify nginx is running and serving content
+logger -t startup-script ">> Nginx status: $(systemctl is-active nginx)"
+logger -t startup-script ">> ComfyUI process: $(pgrep -f main.py | wc -l) processes running"
+
+# Test local connectivity
+sleep 5
+if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8188/ | grep -q "200"; then
+    logger -t startup-script ">> ComfyUI responding locally on port 8188"
+else
+    logger -t startup-script ">> WARNING: ComfyUI not responding locally on port 8188"
+fi
