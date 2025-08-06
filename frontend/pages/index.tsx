@@ -169,7 +169,7 @@ export default function Home() {
     );
   }
 
-  const comfyuiUrl = instanceStatus?.comfyui_url || '';
+  const comfyuiUrl = instanceStatus?.comfyui_url || 'https://comfy.axorai.net';
 
   const isRunning = instanceStatus?.status === 'RUNNING';
   const isTransitioning = ['STOPPING', 'PROVISIONING', 'STAGING'].includes(instanceStatus?.status || '');
