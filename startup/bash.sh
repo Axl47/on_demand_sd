@@ -147,22 +147,35 @@ download_model() {
 }
 
 # Extract the checkpoint name from the workflow to check if it exists
-WORKFLOW_CKPT_NAME=$(python3 -c "
+WORKFLOW_CKPT_NAME=$(python3 << 'PYEOF'
 import json, sys, os
 try:
     with open(os.environ['WORKFLOW_JSON'], 'r') as f:
         workflow = json.load(f)
-    # Look for CheckpointLoaderSimple node
-    for node_id, node in workflow.get('prompt', {}).items():
+    print(f'DEBUG: Loaded workflow keys: {list(workflow.keys())}', file=sys.stderr)
+    
+    # Look for CheckpointLoaderSimple node  
+    prompt_data = workflow.get('prompt', {})
+    print(f'DEBUG: Prompt data keys: {list(prompt_data.keys())}', file=sys.stderr)
+    
+    for node_id, node in prompt_data.items():
+        print(f'DEBUG: Node {node_id}: {node.get("class_type")}', file=sys.stderr)
         if node.get('class_type') == 'CheckpointLoaderSimple':
-            print(node['inputs']['ckpt_name'])
+            ckpt_name = node['inputs']['ckpt_name']
+            print(f'DEBUG: Found checkpoint: {ckpt_name}', file=sys.stderr)
+            print(ckpt_name)
             sys.exit(0)
+    
+    print('DEBUG: No CheckpointLoaderSimple node found', file=sys.stderr)
     print('')  # No checkpoint found
 except Exception as e:
+    print(f'DEBUG: Error extracting checkpoint: {e}', file=sys.stderr)
     print('')  # Error, will trigger download
-")
+PYEOF
+)
 
-logger -t startup-script ">> Required checkpoint: $WORKFLOW_CKPT_NAME"
+logger -t startup-script ">> Required checkpoint: '$WORKFLOW_CKPT_NAME'"
+logger -t startup-script ">> Checking for file: '$MODEL_DEST/$WORKFLOW_CKPT_NAME'"
 
 # Check if the required checkpoint already exists
 if [[ -n "$WORKFLOW_CKPT_NAME" && -f "$MODEL_DEST/$WORKFLOW_CKPT_NAME" ]]; then
