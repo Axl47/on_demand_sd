@@ -115,7 +115,9 @@ The instance manager configures these VM metadata keys:
 - **Session Length**: 24-hour token expiry with secure logout
 
 ### ComfyUI Access
-- **SSL/HTTPS**: Automatic Let's Encrypt certificate when domain configured
+- **SSL/HTTPS**: Support for both Let's Encrypt and Cloudflare origin certificates
+- **Let's Encrypt**: Automatic certificate when domain points directly to GCE instance
+- **Cloudflare**: Origin certificates for domains using Cloudflare proxy (recommended)
 - **Iframe Compatible**: No basic auth to prevent browser blocking
 - **Network Security**: Optional IP-based firewall restrictions
 - **Mixed Content**: HTTPS frontend requires HTTPS ComfyUI for security
@@ -133,15 +135,75 @@ The instance manager configures these VM metadata keys:
 - `GCE_ZONE`: GCP zone for instance deployment
 - `STARTUP_SCRIPT_URL`: GCS URL of setup script
 - `COMFYUI_DOMAIN`: Domain for SSL certificate (optional)
-- `SSL_EMAIL`: Let's Encrypt registration email (optional)
+- `SSL_EMAIL`: Let's Encrypt registration email (optional, for direct DNS)
+- `CF_CERT_PATH`: Cloudflare origin certificate path (optional, for Cloudflare proxy)
+- `CF_KEY_PATH`: Cloudflare origin private key path (optional, for Cloudflare proxy)
 - `ALLOWED_IP`: IP address for firewall restriction (optional)
+
+## SSL Certificate Configuration
+
+### Option 1: Cloudflare Origin Certificates (Recommended)
+
+For domains using Cloudflare proxy (orange cloud), use Cloudflare origin certificates:
+
+1. **Generate Origin Certificate in Cloudflare**:
+   - Go to SSL/TLS → Origin Server in Cloudflare dashboard
+   - Click "Create Certificate"
+   - Select "Let Cloudflare generate a private key and a CSR"
+   - Set hostnames (e.g., `comfy.yourdomain.com`)
+   - Choose key type (RSA 2048 recommended)
+   - Set certificate validity (15 years max)
+
+2. **Store Certificates**:
+   - Save the certificate as `cloudflare-cert.pem`
+   - Save the private key as `cloudflare-key.pem`
+   - Upload to GCS bucket: `gs://your-bucket/ssl/`
+
+3. **Configure Environment**:
+   ```bash
+   COMFYUI_DOMAIN=comfy.yourdomain.com
+   CF_CERT_PATH=gs://your-bucket/ssl/cloudflare-cert.pem
+   CF_KEY_PATH=gs://your-bucket/ssl/cloudflare-key.pem
+   ```
+
+4. **Cloudflare Settings**:
+   - SSL/TLS mode: "Full (strict)" 
+   - Proxy status: Proxied (orange cloud)
+   - Always Use HTTPS: Enabled
+
+### Option 2: Let's Encrypt (For Direct DNS)
+
+For domains pointing directly to GCE instance (not using Cloudflare proxy):
+
+1. **DNS Configuration**:
+   - Point domain A record directly to GCE instance IP
+   - No proxy/CDN between domain and instance
+
+2. **Configure Environment**:
+   ```bash
+   COMFYUI_DOMAIN=comfy.yourdomain.com
+   SSL_EMAIL=your-email@domain.com
+   ```
+
+3. **Automatic Certificate**:
+   - Let's Encrypt will automatically validate domain ownership
+   - Certificate renews automatically via certbot
+
+### Certificate Path Formats
+
+Both GCS and HTTP URLs are supported for certificate paths:
+- **GCS URLs**: `gs://bucket/path/cert.pem` (requires service account access)
+- **HTTP URLs**: `https://your-server.com/ssl/cert.pem` (publicly accessible)
 
 ## Troubleshooting
 
 ### Common Issues
 - **Mixed Content**: Ensure ComfyUI uses HTTPS when frontend is HTTPS
 - **GPU Quota**: Handle `ZONE_RESOURCE_POOL_EXHAUSTED` errors gracefully
-- **SSL Issues**: Verify domain DNS points to instance IP for certificate generation
+- **SSL Certificate Failures**: 
+  - For Cloudflare domains: Use origin certificates instead of Let's Encrypt
+  - For direct DNS: Ensure domain points to instance IP for Let's Encrypt validation
+  - Check certificate paths are accessible and properly formatted
 - **Auth Failures**: Check JWT token storage and header transmission
 - **Network**: Confirm firewall rules allow HTTP/HTTPS access to instances
 

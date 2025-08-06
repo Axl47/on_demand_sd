@@ -15,6 +15,8 @@ AUTH_USER="$(meta auth_user || echo 'admin')"
 AUTH_PASS="$(meta auth_pass || echo 'comfyui123')"
 DOMAIN_NAME="$(meta domain_name)"  # Domain for SSL certificate
 EMAIL="$(meta ssl_email)"          # Email for Let's Encrypt
+CF_CERT_PATH="$(meta cf_cert_path)"  # Path to Cloudflare origin certificate
+CF_KEY_PATH="$(meta cf_key_path)"    # Path to Cloudflare origin private key
 
 # -------- 1. Mount persistent disk if available ------------------------
 PERSIST_MNT="/mnt/persist"
@@ -144,30 +146,140 @@ nginx -t
 systemctl restart nginx
 
 # -------- 5b. Setup SSL certificate if domain is provided ---------------
-if [[ -n "$DOMAIN_NAME" && -n "$EMAIL" ]]; then
-    logger -t startup-script ">> Setting up SSL certificate for domain: $DOMAIN_NAME"
+if [[ -n "$DOMAIN_NAME" ]]; then
+    logger -t startup-script ">> Setting up SSL for domain: $DOMAIN_NAME"
     
     # Update nginx config to use the domain name
     sed -i "s/server_name _;/server_name $DOMAIN_NAME;/" /etc/nginx/sites-available/comfyui
     
-    # Add HTTPS redirect for domain requests
-    sed -i '/location \/ {/i\
+    # Check if Cloudflare origin certificates are provided
+    if [[ -n "$CF_CERT_PATH" && -n "$CF_KEY_PATH" ]]; then
+        logger -t startup-script ">> Using Cloudflare origin certificates"
+        
+        # Create SSL directory
+        mkdir -p /etc/ssl/cloudflare
+        
+        # Download certificates from metadata or use provided paths
+        if [[ "$CF_CERT_PATH" == gs://* ]]; then
+            gsutil cp "$CF_CERT_PATH" /etc/ssl/cloudflare/cert.pem
+            gsutil cp "$CF_KEY_PATH" /etc/ssl/cloudflare/key.pem
+        elif [[ "$CF_CERT_PATH" == http* ]]; then
+            wget -q "$CF_CERT_PATH" -O /etc/ssl/cloudflare/cert.pem
+            wget -q "$CF_KEY_PATH" -O /etc/ssl/cloudflare/key.pem
+        else
+            logger -t startup-script ">> Certificate paths should be GCS URLs or HTTP URLs"
+            logger -t startup-script ">> Falling back to HTTP only"
+            DOMAIN_NAME=""
+        fi
+        
+        if [[ -n "$DOMAIN_NAME" ]]; then
+            # Configure nginx for HTTPS with Cloudflare certificates
+            cat > /etc/nginx/sites-available/comfyui << 'NGINX_HTTPS_CONF'
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+# HTTP server (redirects to HTTPS)
+server {
+    listen 80;
+    server_name DOMAIN_PLACEHOLDER;
+    
+    # Health check endpoint (always available via HTTP)
+    location /health {
+        return 200 "OK\n";
+        add_header Content-Type text/plain;
+    }
+    
+    # Redirect all other traffic to HTTPS
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+# HTTPS server with Cloudflare origin certificate
+server {
+    listen 443 ssl http2;
+    server_name DOMAIN_PLACEHOLDER;
+    
+    # Cloudflare origin certificate
+    ssl_certificate /etc/ssl/cloudflare/cert.pem;
+    ssl_certificate_key /etc/ssl/cloudflare/key.pem;
+    
+    # SSL settings optimized for Cloudflare
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    
+    # Security headers
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    
+    # Allow iframe embedding from specific origins
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+    
+    # Main location block
+    location / {
+        # Proxy to ComfyUI
+        proxy_pass http://127.0.0.1:8188;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket support
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+        
+        # Large file uploads for models
+        client_max_body_size 10G;
+    }
+}
+NGINX_HTTPS_CONF
+            
+            # Replace placeholder with actual domain
+            sed -i "s/DOMAIN_PLACEHOLDER/$DOMAIN_NAME/g" /etc/nginx/sites-available/comfyui
+            
+            logger -t startup-script ">> Cloudflare SSL configuration applied"
+        fi
+        
+    elif [[ -n "$EMAIL" ]]; then
+        logger -t startup-script ">> Using Let's Encrypt certificates"
+        
+        # Add HTTPS redirect for domain requests
+        sed -i '/location \/ {/i\
     # Redirect HTTP to HTTPS for domain requests\
     if ($host = '$DOMAIN_NAME') {\
         return 301 https://$server_name$request_uri;\
     }'  /etc/nginx/sites-available/comfyui
-    
-    # Reload with domain config
-    nginx -t && systemctl reload nginx
-    
-    # Get SSL certificate
-    certbot --nginx -d "$DOMAIN_NAME" --email "$EMAIL" --agree-tos --non-interactive --redirect
-    
-    if [[ $? -eq 0 ]]; then
-        logger -t startup-script ">> SSL certificate obtained successfully for $DOMAIN_NAME"
+        
+        # Reload with domain config
+        nginx -t && systemctl reload nginx
+        
+        # Get SSL certificate via Let's Encrypt
+        certbot --nginx -d "$DOMAIN_NAME" --email "$EMAIL" --agree-tos --non-interactive --redirect
+        
+        if [[ $? -eq 0 ]]; then
+            logger -t startup-script ">> Let's Encrypt certificate obtained successfully for $DOMAIN_NAME"
+        else
+            logger -t startup-script ">> Failed to obtain Let's Encrypt certificate, continuing with HTTP"
+            # Reset nginx config to HTTP only
+            sed -i "s/server_name $DOMAIN_NAME;/server_name _;/" /etc/nginx/sites-available/comfyui
+            sed -i '/# Redirect HTTP to HTTPS/,+3d' /etc/nginx/sites-available/comfyui
+        fi
     else
-        logger -t startup-script ">> Failed to obtain SSL certificate, continuing with HTTP"
+        logger -t startup-script ">> Domain provided but no SSL configuration (no email or Cloudflare certs)"
+        logger -t startup-script ">> Continuing with HTTP only"
     fi
+    
+    # Test and reload nginx with final config
+    nginx -t && systemctl reload nginx
 else
     logger -t startup-script ">> No domain configured, using HTTP only"
 fi

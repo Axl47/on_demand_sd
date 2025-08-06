@@ -49,6 +49,8 @@ AUTH_USER = os.getenv("COMFYUI_AUTH_USER", "admin")
 AUTH_PASS = os.getenv("COMFYUI_AUTH_PASS", "comfyui123")
 DOMAIN_NAME = os.getenv("COMFYUI_DOMAIN")  # Domain for SSL certificate
 SSL_EMAIL = os.getenv("SSL_EMAIL")  # Email for Let's Encrypt
+CF_CERT_PATH = os.getenv("CF_CERT_PATH")  # Path to Cloudflare origin certificate
+CF_KEY_PATH = os.getenv("CF_KEY_PATH")    # Path to Cloudflare origin private key
 
 # Log configuration (without sensitive data)
 logger.info(f"Configuration loaded:")
@@ -224,6 +226,10 @@ def start_instance():
             metadata_items.append({"key": "domain_name", "value": DOMAIN_NAME})
         if SSL_EMAIL:
             metadata_items.append({"key": "ssl_email", "value": SSL_EMAIL})
+        if CF_CERT_PATH:
+            metadata_items.append({"key": "cf_cert_path", "value": CF_CERT_PATH})
+        if CF_KEY_PATH:
+            metadata_items.append({"key": "cf_key_path", "value": CF_KEY_PATH})
         
         try:
             set_instance_metadata(metadata_items)
