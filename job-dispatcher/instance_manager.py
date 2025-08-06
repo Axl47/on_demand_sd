@@ -36,16 +36,16 @@ compute = discovery.build("compute", "v1")
 
 # Configuration from environment
 PROJECT = os.getenv("GCP_PROJECT")
-INSTANCE = os.getenv("GCE_INSTANCE", "comfyui-gpu")
-ZONE = os.getenv("GCE_ZONE", "us-central1-a")
+INSTANCE = os.getenv("GCE_INSTANCE", "gpu-sd-worker")
+ZONE = os.getenv("GCE_ZONE", "us-central1-c")
 STARTUP_SCRIPT_URL = os.getenv("STARTUP_SCRIPT_URL")
 ALLOWED_IP = os.getenv("ALLOWED_IP")  # IP allowed to access ComfyUI
 AUTH_USER = os.getenv("COMFYUI_AUTH_USER", "admin")
-AUTH_PASS = os.getenv("COMFYUI_AUTH_PASS", "comfyui123")
+AUTH_PASS = os.getenv("COMFYUI_AUTH_PASS", "comfyui@123")
 
 # Activity tracking
 last_activity = datetime.now()
-INACTIVITY_TIMEOUT = timedelta(minutes=30)
+INACTIVITY_TIMEOUT = timedelta(minutes=1)
 
 class InstanceStatus(BaseModel):
     status: str
