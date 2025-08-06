@@ -25,9 +25,6 @@ services:
       - "${DISPATCHER_PORT:-8187}:8187"
     volumes:
       - ./job-dispatcher:/app
-      # GCE volumes (only used when DISPATCHER_MODE=gce)
-      - ${GCP_CREDENTIALS_PATH:-/tmp/empty}:/root/.config/gcloud:ro
-      - ${SERVICE_ACCOUNT_KEY:-/tmp/empty}:/tmp/sa-key.json:ro
     working_dir: /app
     environment:
       # Mode selection
