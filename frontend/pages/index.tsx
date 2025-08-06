@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import axios from 'axios';
 import api from '@/lib/api';
 import { getAuthToken, isTokenExpired, clearAuthToken } from '@/lib/auth-client';
+import { formatWithTimezone } from '@/lib/time-utils';
 
 interface InstanceStatus {
   status: 'RUNNING' | 'TERMINATED' | 'STOPPING' | 'PROVISIONING' | 'STAGING' | 'UNKNOWN';
@@ -201,7 +202,7 @@ export default function Home() {
 
             {instanceStatus?.last_activity && (
               <div className="text-sm text-gray-400">
-                Last activity: {new Date(instanceStatus.last_activity).toLocaleTimeString()}
+                Last activity: {formatWithTimezone(instanceStatus.last_activity)}
               </div>
             )}
           </div>

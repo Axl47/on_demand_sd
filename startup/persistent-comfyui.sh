@@ -121,9 +121,14 @@ server {
         add_header Access-Control-Allow-Origin "*" always;
         add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
         add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+        add_header Content-Security-Policy "frame-ancestors *;" always;
         
         # Proxy to ComfyUI
         proxy_pass http://127.0.0.1:8188;
+        
+        # Remove any X-Frame-Options header from upstream
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Content-Security-Policy;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
@@ -227,8 +232,15 @@ server {
     
     # Main location block
     location / {
+        # Allow iframe embedding with proper CSP
+        add_header Content-Security-Policy "frame-ancestors *;" always;
+        
         # Proxy to ComfyUI
         proxy_pass http://127.0.0.1:8188;
+        
+        # Remove any X-Frame-Options header from upstream
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Content-Security-Policy;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
@@ -298,11 +310,31 @@ autostart=true
 autorestart=true
 stderr_logfile=/var/log/comfyui.err.log
 stdout_logfile=/var/log/comfyui.out.log
-environment=PATH="$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+environment=PATH="$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",PYTHONPATH="$COMFY_DIR:$VENV_DIR/lib/python3.10/site-packages"
+startsecs=10
+startretries=3
 SUPERVISOR_CONF
 
 # Start supervisor
 systemctl restart supervisor
+
+# Give supervisor time to start processes
+sleep 5
+
+# Check if ComfyUI started successfully
+supervisorctl status comfyui
+if ! supervisorctl status comfyui | grep -q RUNNING; then
+    logger -t startup-script ">> ComfyUI failed to start, checking logs..."
+    tail -n 50 /var/log/comfyui.err.log | logger -t startup-script
+    
+    # Try starting ComfyUI directly for debugging
+    logger -t startup-script ">> Attempting direct start for debugging..."
+    cd "$COMFY_DIR"
+    timeout 10 $VENV_DIR/bin/python main.py --listen 127.0.0.1 --port 8188 2>&1 | head -n 20 | logger -t startup-script || true
+    
+    # Restart supervisor one more time
+    supervisorctl restart comfyui
+fi
 
 # -------- 7. Wait for ComfyUI to be ready ------------------------------
 logger -t startup-script ">> Waiting for ComfyUI to start..."
@@ -325,8 +357,17 @@ if [[ -n "$ALLOWED_IP" ]]; then
     ufw default deny incoming
     ufw default allow outgoing
     ufw allow from "$ALLOWED_IP" to any port 80
+    ufw allow from "$ALLOWED_IP" to any port 443
     ufw allow from "$ALLOWED_IP" to any port 22
     ufw reload
+else
+    # Ensure ports are open if no IP restriction
+    logger -t startup-script ">> Ensuring firewall allows HTTP/HTTPS access"
+    if command -v ufw >/dev/null 2>&1; then
+        ufw allow 80/tcp
+        ufw allow 443/tcp
+        ufw allow 22/tcp
+    fi
 fi
 
 # -------- 9. Setup auto-shutdown cron job ------------------------------
