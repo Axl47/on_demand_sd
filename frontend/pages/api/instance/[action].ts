@@ -10,6 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     NODE_ENV: process.env.NODE_ENV,
     DISPATCHER_URL: process.env.DISPATCHER_URL
   });
+  console.log('Instance API - Full request URL will be:', `${DISPATCHER_URL}/status`);
   if (!checkAuthFlex(req, res)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -19,7 +20,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     switch (action) {
       case 'status':
+        console.log('Making request to:', `${DISPATCHER_URL}/status`);
         const statusRes = await axios.get(`${DISPATCHER_URL}/status`);
+        console.log('Status response received. Status code:', statusRes.status);
+        console.log('Response headers:', JSON.stringify(statusRes.headers, null, 2));
         console.log('Raw status response from dispatcher:', JSON.stringify(statusRes.data, null, 2));
         return res.status(200).json(statusRes.data);
 
