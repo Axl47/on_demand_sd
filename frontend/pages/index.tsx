@@ -126,7 +126,15 @@ export default function Home() {
       await api.post('/api/instance/start');
       await checkInstanceStatus();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to start instance');
+      const errorMessage = err.response?.data?.error || 'Failed to start instance';
+      const statusCode = err.response?.status;
+      
+      // Add helpful context for 503 Service Unavailable (resource exhaustion)
+      if (statusCode === 503) {
+        setError(`${errorMessage} 🔄 This is temporary - GPU resources are limited on Google Cloud.`);
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }

@@ -32,16 +32,30 @@ app.add_middleware(
 )
 
 # Google Cloud clients
-compute = discovery.build("compute", "v1")
+try:
+    compute = discovery.build("compute", "v1")
+    logger.info("Google Cloud Compute client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Google Cloud client: {e}")
+    raise
 
 # Configuration from environment
 PROJECT = os.getenv("GCP_PROJECT")
 INSTANCE = os.getenv("GCE_INSTANCE", "gpu-sd-worker")
-ZONE = os.getenv("GCE_ZONE", "us-central1-c")
+ZONE = os.getenv("GCE_ZONE", "us-central1-a")
 STARTUP_SCRIPT_URL = os.getenv("STARTUP_SCRIPT_URL")
 ALLOWED_IP = os.getenv("ALLOWED_IP")  # IP allowed to access ComfyUI
 AUTH_USER = os.getenv("COMFYUI_AUTH_USER", "admin")
 AUTH_PASS = os.getenv("COMFYUI_AUTH_PASS", "comfyui@123")
+
+# Log configuration (without sensitive data)
+logger.info(f"Configuration loaded:")
+logger.info(f"  PROJECT: {PROJECT}")
+logger.info(f"  INSTANCE: {INSTANCE}")
+logger.info(f"  ZONE: {ZONE}")
+logger.info(f"  STARTUP_SCRIPT_URL: {STARTUP_SCRIPT_URL}")
+logger.info(f"  ALLOWED_IP: {ALLOWED_IP}")
+logger.info(f"  GOOGLE_APPLICATION_CREDENTIALS: {os.getenv('GOOGLE_APPLICATION_CREDENTIALS')}")
 
 # Activity tracking
 last_activity = datetime.now()
@@ -174,6 +188,7 @@ def start_instance():
             )
         
         # Set metadata for startup script
+        logger.info(f"Setting metadata for instance {INSTANCE}")
         metadata_items = [
             {"key": "startup-script-url", "value": STARTUP_SCRIPT_URL}
         ]
@@ -186,14 +201,26 @@ def start_instance():
             {"key": "auth_pass", "value": AUTH_PASS}
         ])
         
-        set_instance_metadata(metadata_items)
+        try:
+            set_instance_metadata(metadata_items)
+            logger.info("Metadata set successfully")
+        except Exception as e:
+            logger.error(f"Failed to set metadata: {e}")
+            raise
         
         # Start the instance
-        operation = compute.instances().start(
-            project=PROJECT,
-            zone=ZONE,
-            instance=INSTANCE
-        ).execute()
+        logger.info(f"Starting instance {INSTANCE} in project {PROJECT}, zone {ZONE}")
+        try:
+            operation = compute.instances().start(
+                project=PROJECT,
+                zone=ZONE,
+                instance=INSTANCE
+            ).execute()
+            logger.info(f"Start operation initiated: {operation.get('name', 'unknown')}")
+        except Exception as e:
+            logger.error(f"Failed to start instance operation: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            raise
         
         wait_for_operation(operation)
         
@@ -206,6 +233,18 @@ def start_instance():
     except HttpError as e:
         if e.resp.status == 404:
             raise HTTPException(status_code=404, detail="Instance not found")
+        
+        # Handle specific GCP errors
+        error_content = str(e)
+        if "ZONE_RESOURCE_POOL_EXHAUSTED" in error_content:
+            error_msg = "GPU resources are currently unavailable. Please try again in a few minutes."
+            logger.error(f"Resource pool exhausted in {ZONE}")
+            raise HTTPException(status_code=503, detail=error_msg)
+        elif "QUOTA_EXCEEDED" in error_content:
+            error_msg = "GPU quota exceeded. Please check your GCP quotas or contact support."
+            logger.error(error_msg)
+            raise HTTPException(status_code=503, detail=error_msg)
+        
         logger.error(f"Failed to start instance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
