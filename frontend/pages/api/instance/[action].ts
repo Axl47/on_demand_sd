@@ -1,11 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { checkAuth } from '@/lib/auth';
+import { checkAuthFlex } from '@/lib/auth';
 import axios from 'axios';
 
 const DISPATCHER_URL = process.env.DISPATCHER_URL || 'http://localhost:8187';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (!checkAuth(req, res)) {
+  if (!checkAuthFlex(req, res)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

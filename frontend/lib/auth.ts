@@ -56,3 +56,25 @@ export function logout(res: NextApiResponse): void {
     path: '/', // Match the path used when setting the cookie
   });
 }
+
+// Alternative auth check that supports both cookies and headers
+export function checkAuthFlex(req: NextApiRequest, res: NextApiResponse): boolean {
+  // First try header-based auth
+  const authHeader = req.headers.authorization;
+  const customHeader = req.headers['x-auth-token'] as string;
+  
+  let token = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (customHeader) {
+    token = customHeader;
+  }
+
+  if (token) {
+    const payload = verifyToken(token);
+    return payload !== null && payload.authenticated;
+  }
+
+  // Fallback to cookie-based auth
+  return checkAuth(req, res);
+}
