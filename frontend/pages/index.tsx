@@ -179,23 +179,10 @@ export default function Home() {
 
   // Focus management and keyboard forwarding for ComfyUI iframe
   useEffect(() => {
-    if (!isRunning || !iframeRef.current) return;
-
-    const iframe = iframeRef.current;
-    
-    // Focus the iframe initially
-    const focusIframe = () => {
-      try {
-        iframe.contentWindow?.focus();
-        setIframeFocused(true);
-      } catch (e) {
-        // Cross-origin or iframe not ready yet
-        console.log('Could not focus iframe directly');
-      }
-    };
-
-    // Auto-focus after a short delay to ensure iframe is loaded
-    const focusTimeout = setTimeout(focusIframe, 500);
+    if (!isRunning) {
+      setIframeFocused(false);
+      return;
+    }
 
     // Common ComfyUI keyboard shortcuts
     const comfyuiShortcuts = new Set([
@@ -207,32 +194,20 @@ export default function Home() {
 
     // Forward keyboard events to iframe
     const handleKeyDown = (e: KeyboardEvent) => {
+      const iframe = iframeRef.current;
+      if (!iframe || !iframe.contentWindow) return;
+
       // Check if this is a ComfyUI shortcut
       const isComfyUIShortcut = comfyuiShortcuts.has(e.code) || 
                                (e.ctrlKey && comfyuiShortcuts.has(e.code)) ||
                                (e.altKey && comfyuiShortcuts.has(e.code)) ||
                                (e.shiftKey && comfyuiShortcuts.has(e.code));
       
-      // If it's a potential ComfyUI shortcut and iframe is available
-      if (isComfyUIShortcut && iframe.contentWindow) {
+      if (isComfyUIShortcut) {
         try {
           // Focus the iframe first
           iframe.contentWindow.focus();
-          
-          // Create a new keyboard event
-          const forwardedEvent = new KeyboardEvent('keydown', {
-            key: e.key,
-            code: e.code,
-            ctrlKey: e.ctrlKey,
-            altKey: e.altKey,
-            shiftKey: e.shiftKey,
-            metaKey: e.metaKey,
-            bubbles: true,
-            cancelable: true
-          });
-          
-          // Try to dispatch to iframe's document
-          iframe.contentDocument?.dispatchEvent(forwardedEvent);
+          setIframeFocused(true);
           
           // For critical shortcuts, prevent parent handling
           if ((e.ctrlKey && ['KeyA', 'KeyC', 'KeyV', 'KeyZ'].includes(e.code))) {
@@ -247,33 +222,30 @@ export default function Home() {
 
     // Handle clicks outside iframe to refocus
     const handleDocumentClick = (e: MouseEvent) => {
+      const iframe = iframeRef.current;
       if (iframe && !iframe.contains(e.target as Node)) {
         // Click was outside iframe, refocus it after a brief delay
         setTimeout(() => {
-          focusIframe();
+          try {
+            iframe.contentWindow?.focus();
+            setIframeFocused(true);
+          } catch (e) {
+            console.log('Could not focus iframe');
+          }
         }, 10);
       }
     };
 
-    // Handle iframe focus/blur events
-    const handleIframeFocus = () => setIframeFocused(true);
-    const handleIframeBlur = () => setIframeFocused(false);
-
     // Add event listeners
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('click', handleDocumentClick);
-    iframe.addEventListener('focus', handleIframeFocus);
-    iframe.addEventListener('blur', handleIframeBlur);
 
     // Cleanup
     return () => {
-      clearTimeout(focusTimeout);
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('click', handleDocumentClick);
-      iframe.removeEventListener('focus', handleIframeFocus);
-      iframe.removeEventListener('blur', handleIframeBlur);
     };
-  }, [isRunning, comfyuiUrl]);
+  }, [isRunning]);
 
   // Debug logging
   console.log('Instance Status:', instanceStatus);
@@ -371,13 +343,15 @@ export default function Home() {
               sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
               onLoad={() => {
                 console.log('Iframe loaded successfully');
-                // Focus the iframe after load
+                // Focus the iframe after a short delay
                 setTimeout(() => {
-                  if (iframeRef.current?.contentWindow) {
-                    iframeRef.current.contentWindow.focus();
+                  try {
+                    iframeRef.current?.contentWindow?.focus();
                     setIframeFocused(true);
+                  } catch (e) {
+                    console.log('Could not focus iframe on load');
                   }
-                }, 100);
+                }, 500);
               }}
               onError={(e) => console.error('Iframe error:', e)}
               onClick={() => {
