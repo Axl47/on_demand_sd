@@ -4,7 +4,7 @@ import os, uuid, tempfile, requests
 DISPATCHER_URL = os.getenv("DISPATCHER_URL") or "http://dispatcher:8187/render"
 
 # ----------------------------------------------------------------------
-def build_workflow(prompt_txt: str, sampler: str, steps: int, ckpt: str, job_id: str) -> dict:
+def build_workflow(prompt_txt: str, sampler: str, steps: int, ckpt: str, job_id: str, seed: int) -> dict:
     """Return a valid ComfyUI API-format workflow"""
     return {
         "prompt": {
@@ -32,7 +32,7 @@ def build_workflow(prompt_txt: str, sampler: str, steps: int, ckpt: str, job_id:
                              "positive": ["2", 0],
                              "negative": ["3", 0],
                              "latent_image": ["0", 0],
-                             "seed": 156680208700286,
+                             "seed": seed,
                              "steps": steps,
                              "cfg": 8.0,
                              "sampler_name": sampler,
@@ -59,10 +59,11 @@ class DispatchToGPU:
     def INPUT_TYPES(cls):
         return {"required": {
             "PROMPT":    ("STRING", {"multiline": True}),
-            "MODEL_URL": ("STRING", {"default": ""}),
+            "MODEL_URL": ("STRING", {"default": "https://civitai.com/api/download/models/2010753?token=b10fa8a6813b11b59ff5043f154aa1b9"}),
             "SAMPLER":   ("STRING", {"default": "euler"}),
             "STEPS":     ("INT",    {"default": 30, "min": 1, "max": 150}),
-            "CKPT_NAME": ("STRING", {"default": "Hassaku-XL-Illustrious.safetensors"})
+            "CKPT_NAME": ("STRING", {"default": "hassakuXLIllustrious_v30.safetensors"}),
+            "SEED": ("INT", {"default": 156680208700286})
         }}
 
     RETURN_TYPES = ("IMAGE",)
@@ -70,11 +71,11 @@ class DispatchToGPU:
     CATEGORY = "Utility / Dispatch"
 
     # -------------------------------------------------------------
-    def run(self, PROMPT, MODEL_URL="", SAMPLER="euler",
-            STEPS=30, CKPT_NAME="Hassaku-XL-Illustrious.safetensors"):
+    def run(self, PROMPT, MODEL_URL="https://civitai.com/api/download/models/2010753?token=b10fa8a6813b11b59ff5043f154aa1b9", SAMPLER="euler",
+            STEPS=30, CKPT_NAME="hassakuXLIllustrious_v30.safetensors", SEED=156680208700286):
 
         job_id   = str(uuid.uuid4())
-        workflow = build_workflow(PROMPT, SAMPLER, int(STEPS), CKPT_NAME, job_id)
+        workflow = build_workflow(PROMPT, SAMPLER, int(STEPS), CKPT_NAME, job_id, SEED)
 
         payload  = {
             "workflow" : workflow,          # <── new, full graph

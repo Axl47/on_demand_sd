@@ -146,8 +146,38 @@ download_model() {
   exit 1
 }
 
-# Execute download
-download_model
+# Extract the checkpoint name from the workflow to check if it exists
+WORKFLOW_CKPT_NAME=$(python3 -c "
+import json, sys, os
+try:
+    with open(os.environ['WORKFLOW_JSON'], 'r') as f:
+        workflow = json.load(f)
+    # Look for CheckpointLoaderSimple node
+    for node_id, node in workflow.get('prompt', {}).items():
+        if node.get('class_type') == 'CheckpointLoaderSimple':
+            print(node['inputs']['ckpt_name'])
+            sys.exit(0)
+    print('')  # No checkpoint found
+except Exception as e:
+    print('')  # Error, will trigger download
+")
+
+logger -t startup-script ">> Required checkpoint: $WORKFLOW_CKPT_NAME"
+
+# Check if the required checkpoint already exists
+if [[ -n "$WORKFLOW_CKPT_NAME" && -f "$MODEL_DEST/$WORKFLOW_CKPT_NAME" ]]; then
+    logger -t startup-script ">> Required checkpoint already exists, validating..."
+    if validate_model "$MODEL_DEST/$WORKFLOW_CKPT_NAME"; then
+        logger -t startup-script ">> Using existing valid checkpoint: $WORKFLOW_CKPT_NAME"
+    else
+        logger -t startup-script ">> Existing checkpoint is corrupted, will re-download"
+        rm -f "$MODEL_DEST/$WORKFLOW_CKPT_NAME"
+        download_model
+    fi
+else
+    logger -t startup-script ">> Required checkpoint not found, downloading..."
+    download_model
+fi
 
 # List downloaded files for debugging
 logger -t startup-script ">> Files in models directory:"
