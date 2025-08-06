@@ -112,7 +112,7 @@ server {
     
     # If domain is configured, redirect to HTTPS, otherwise serve directly
     location / {
-        # Allow iframe embedding from frontend
+        # Allow iframe embedding from frontend (no X-Frame-Options restrictions)
         add_header Access-Control-Allow-Origin "*" always;
         add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
         add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
@@ -211,8 +211,7 @@ server {
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;
     
-    # Security headers - Allow iframe embedding from frontend domain
-    add_header Content-Security-Policy "frame-ancestors 'self' https://image.axorai.net" always;
+    # Security headers - Allow iframe embedding (removed X-Frame-Options for ComfyUI embedding)
     add_header X-Content-Type-Options nosniff always;
     add_header X-XSS-Protection "1; mode=block" always;
     
