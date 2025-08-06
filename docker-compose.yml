@@ -11,14 +11,13 @@ services:
       - DISPATCHER_URL=http://dispatcher:8187
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
       - AUTH_PASSWORD=${AUTH_PASSWORD:-comfyui123}
-      - GCE_COMFYUI_URL=${GCE_COMFYUI_URL}
     depends_on:
       - dispatcher
     restart: unless-stopped
     networks:
       - comfyui-network
 
-  # Instance Manager (formerly Job Dispatcher)
+  # Instance Manager - Supports both GCE and Runpod
   dispatcher:
     image: python:3.10-slim
     container_name: comfyui-dispatcher
@@ -26,10 +25,23 @@ services:
       - "${DISPATCHER_PORT:-8187}:8187"
     volumes:
       - ./job-dispatcher:/app
-      - ${GCP_CREDENTIALS_PATH:-/home/axor/.config/gcloud}:/root/.config/gcloud:ro
-      - ${SERVICE_ACCOUNT_KEY:-/home/axor/.secrets/sa-key.json}:/tmp/sa-key.json:ro
+      # GCE volumes (only used when DISPATCHER_MODE=gce)
+      - ${GCP_CREDENTIALS_PATH:-/tmp/empty}:/root/.config/gcloud:ro
+      - ${SERVICE_ACCOUNT_KEY:-/tmp/empty}:/tmp/sa-key.json:ro
     working_dir: /app
     environment:
+      # Mode selection
+      - DISPATCHER_MODE=${DISPATCHER_MODE:-runpod}
+      
+      # Runpod configuration
+      - RUNPOD_API_KEY=${RUNPOD_API_KEY}
+      - RUNPOD_POD_ID=${RUNPOD_POD_ID}
+      - RUNPOD_TEMPLATE_ID=${RUNPOD_TEMPLATE_ID}
+      - RUNPOD_GPU_TYPE=${RUNPOD_GPU_TYPE:-NVIDIA L40S}
+      - RUNPOD_DISK_SIZE=${RUNPOD_DISK_SIZE:-100}
+      - RUNPOD_VOLUME_ID=${RUNPOD_VOLUME_ID}
+      
+      # GCE configuration (legacy)
       - GCP_PROJECT=${GCP_PROJECT}
       - GCE_INSTANCE=${GCE_INSTANCE:-comfyui-gpu}
       - GCE_ZONE=${GCE_ZONE:-us-central1-a}
@@ -38,13 +50,22 @@ services:
       - ALLOWED_IP=${ALLOWED_IP}
       - COMFYUI_AUTH_USER=${COMFYUI_AUTH_USER:-admin}
       - COMFYUI_AUTH_PASS=${COMFYUI_AUTH_PASS:-comfyui123}
+      
+      # Shared configuration
       - COMFYUI_DOMAIN=${COMFYUI_DOMAIN}
       - SSL_EMAIL=${SSL_EMAIL}
       - CF_CERT_PATH=${CF_CERT_PATH}
       - CF_KEY_PATH=${CF_KEY_PATH}
     command: |
-      sh -c "pip install -r requirements.txt && 
-             python instance_manager.py"
+      sh -c "
+        if [ \"$${DISPATCHER_MODE}\" = \"runpod\" ]; then
+          echo 'Starting Runpod manager...'
+          pip install -r requirements-runpod.txt && python runpod_manager.py
+        else
+          echo 'Starting GCE manager...'
+          pip install -r requirements.txt && python instance_manager.py
+        fi
+      "
     restart: unless-stopped
     networks:
       - comfyui-network
