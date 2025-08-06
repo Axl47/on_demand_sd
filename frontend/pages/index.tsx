@@ -173,6 +173,12 @@ export default function Home() {
   const isRunning = instanceStatus?.status === 'RUNNING';
   const isTransitioning = ['STOPPING', 'PROVISIONING', 'STAGING'].includes(instanceStatus?.status || '');
 
+  // Debug logging
+  console.log('Instance Status:', instanceStatus);
+  console.log('ComfyUI URL:', comfyuiUrl);
+  console.log('Is Running:', isRunning);
+  console.log('Should show iframe:', isRunning && comfyuiUrl);
+
   return (
     <div className="min-h-screen bg-gray-900 relative">
       {/* Control Panel */}
@@ -237,11 +243,16 @@ export default function Home() {
       {/* ComfyUI iframe or Start Message */}
       <div className="pt-20 h-screen">
         {isRunning && comfyuiUrl ? (
-          <iframe
-            src={comfyuiUrl}
-            className="w-full h-full border-0"
-            title="ComfyUI"
-          />
+          <div className="w-full h-full">
+            <iframe
+              src={comfyuiUrl}
+              className="w-full h-full border-0"
+              title="ComfyUI"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+              onLoad={() => console.log('Iframe loaded successfully')}
+              onError={(e) => console.error('Iframe error:', e)}
+            />
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
