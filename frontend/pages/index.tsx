@@ -104,6 +104,8 @@ export default function Home() {
   const checkInstanceStatus = async () => {
     try {
       const res = await api.get('/api/instance/status');
+      console.log('Raw API response:', res);
+      console.log('Response data:', JSON.stringify(res.data, null, 2));
       setInstanceStatus(res.data);
       setError('');
     } catch (err) {

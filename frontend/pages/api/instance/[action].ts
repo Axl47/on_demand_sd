@@ -20,6 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     switch (action) {
       case 'status':
         const statusRes = await axios.get(`${DISPATCHER_URL}/status`);
+        console.log('Raw status response from dispatcher:', JSON.stringify(statusRes.data, null, 2));
         return res.status(200).json(statusRes.data);
 
       case 'start':
