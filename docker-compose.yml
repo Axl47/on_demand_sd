@@ -38,6 +38,8 @@ services:
       - ALLOWED_IP=${ALLOWED_IP}
       - COMFYUI_AUTH_USER=${COMFYUI_AUTH_USER:-admin}
       - COMFYUI_AUTH_PASS=${COMFYUI_AUTH_PASS:-comfyui123}
+      - COMFYUI_DOMAIN=${COMFYUI_DOMAIN}
+      - SSL_EMAIL=${SSL_EMAIL}
     command: |
       sh -c "pip install -r requirements.txt && 
              python instance_manager.py"
