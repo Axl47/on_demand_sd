@@ -4,89 +4,150 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture Overview
 
-This is an on-demand Stable Diffusion system that orchestrates ComfyUI workloads across local CPU and remote GPU resources:
+This is an on-demand ComfyUI system with web-based control and embedded GPU-accelerated ComfyUI interface:
 
-- **Local ComfyUI Frontend** (`vps-comfyui/`): CPU-only Docker container for workflow composition
-- **Job Dispatcher** (`job-dispatcher/main.py`): FastAPI service that manages GPU VM lifecycle and job orchestration
-- **GPU Worker Bootstrap** (`startup/bash.sh`): Automated VM setup script that installs ComfyUI on fresh GPU instances
-- **Custom ComfyUI Node** (`vps-comfyui/custom_nodes/dispatch_gpu.py`): Dispatches rendering jobs to GPU backend
+- **Next.js Frontend** (`frontend/`): Web interface with authentication and embedded ComfyUI iframe
+- **Instance Manager** (`job-dispatcher/instance_manager.py`): FastAPI service that manages GCE GPU instance lifecycle
+- **Persistent ComfyUI** (`startup/persistent-comfyui.sh`): GPU VM setup with persistent disk and nginx SSL proxy
+- **Docker Stack**: Containerized frontend and instance manager with proper networking
 
 ## Key Components
 
-### Job Dispatcher (`job-dispatcher/main.py`)
-- Receives rendering requests with ComfyUI workflows and model URLs
-- Manages GCE instance lifecycle (start/stop GPU VMs)
-- Handles GCS bucket operations for job data and outputs
-- Uses VM metadata for job-specific configuration
-- Waits for completion signals before returning results
+### Frontend (`frontend/`)
+- **Authentication**: JWT-based with localStorage (cookie-free for proxy compatibility)
+- **Instance Control**: Start/stop GCE instances with real-time status monitoring
+- **ComfyUI Embedding**: Direct iframe access to GPU-accelerated ComfyUI
+- **Auto-shutdown**: Keep-alive mechanism prevents idle resource waste
+- **Technology Stack**: Next.js 14, TypeScript, TailwindCSS, Axios
 
-### GPU Worker (`startup/bash.sh`)
-- Bootstraps GPU VMs with ComfyUI and dependencies
-- Downloads models from Civitai or GCS
-- Executes workflows via ComfyUI API
-- Uploads results to GCS and signals completion
-- Auto-shuts down after job completion
+### Instance Manager (`job-dispatcher/instance_manager.py`)
+- **GCE Lifecycle**: Start/stop GPU instances with proper error handling
+- **Status Monitoring**: Real-time instance status and external IP detection
+- **SSL Support**: Automatic HTTPS URL generation when domain is configured
+- **Activity Tracking**: Keep-alive endpoint for usage-based shutdown
+- **Error Handling**: User-friendly messages for GPU quota/availability issues
 
-### Custom Node (`dispatch_gpu.py`)
-- ComfyUI node that sends jobs to the dispatcher
-- Builds workflow graphs programmatically
-- Returns thumbnail images for UI feedback
+### Persistent ComfyUI Setup (`startup/persistent-comfyui.sh`)
+- **Persistent Storage**: Models and configurations survive stop/start cycles
+- **SSL/HTTPS Support**: Automatic Let's Encrypt certificate management
+- **Nginx Proxy**: HTTPS termination, CORS headers for iframe compatibility
+- **Supervisor Management**: ComfyUI runs as supervised service with auto-restart
+- **Activity Monitoring**: Auto-shutdown after 30 minutes of inactivity
+- **Security**: Firewall rules and optional IP-based access control
 
 ## Development Commands
 
 ### Local Development
 ```bash
-# Start services (CPU ComfyUI + Dispatcher)
-docker-compose up
+# Start all services (Frontend + Instance Manager)
+docker-compose up -d
 
-# Build only ComfyUI container
-docker-compose build comfyui
+# Build specific services
+docker-compose build frontend
+docker-compose build dispatcher
 
 # View logs
-docker-compose logs -f [service_name]
+docker-compose logs -f frontend
+docker-compose logs -f comfyui-dispatcher
+
+# Development with hot reload
+cd frontend && npm run dev
 ```
 
 ### Configuration
-- Copy `.env.example` to `.env` and configure:
+- Copy `.env.new.example` to `.env` and configure:
   - GCP project, instance, and zone settings
-  - GCS bucket names for jobs and outputs
-  - API keys for model downloads
-  - Service ports (ComfyUI: 8188, Dispatcher: 8187)
+  - Frontend authentication password
+  - SSL domain and email for HTTPS (optional)
+  - Instance manager settings
 
 ### Service URLs
-- ComfyUI UI: `http://localhost:8188`
-- Dispatcher API: `http://localhost:8187`
-- Render endpoint: `POST http://localhost:8187/render`
+- Frontend UI: `https://image.axorai.net` (or configured domain)
+- Instance Manager API: `http://localhost:8187`
+- GCE ComfyUI: `https://comfy.yourdomain.com` or `http://external-ip`
 
 ## GCP Integration
 
 ### Required Permissions
-- Compute Engine: start/stop instances, manage metadata
-- Cloud Storage: read/write to job and output buckets
+- Compute Engine: start/stop instances, manage metadata, network access
 - Service Account: `/tmp/sa-key.json` mounted in dispatcher container
+- Firewall Rules: Allow HTTP/HTTPS to GCE instances
 
-### Metadata Keys
-The dispatcher uses these VM metadata keys:
-- `startup-script-url`: Points to the bootstrap script
-- `job_workflow`: GCS path to workflow JSON
-- `model_uri`: Model download URL (Civitai or GCS)
-- `output_bucket`: Target GCS path for results
+### Instance Metadata
+The instance manager configures these VM metadata keys:
+- `startup-script-url`: Points to the persistent ComfyUI setup script
+- `domain_name`: Domain for SSL certificate (optional)
+- `ssl_email`: Let's Encrypt email for certificate (optional)
+- `allowed_ip`: IP address allowed through firewall (optional)
+- `auth_user`/`auth_pass`: Basic auth credentials (legacy)
+
+### GPU Instance Requirements
+- **Machine Type**: n1-standard-4 or similar with GPU attachment
+- **GPU**: nvidia-tesla-t4 (or other supported GPU)
+- **Persistent Disk**: Optional but recommended for model storage
+- **Network**: External IP with HTTP/HTTPS firewall rules
+- **Image**: Deep Learning VM or Ubuntu with CUDA drivers
 
 ## File Organization
 
-- `docker-compose.yml`: Multi-service orchestration
-- `vps-comfyui/Dockerfile`: CPU-only ComfyUI image
-- `job-dispatcher/`: FastAPI dispatcher service
-- `startup/bash.sh`: GPU VM bootstrap script
-- `tools/`: Legacy helper scripts
-- `.env.example`: Configuration template
+- `frontend/`: Next.js web application with authentication and controls
+- `job-dispatcher/instance_manager.py`: GCE instance lifecycle management
+- `startup/persistent-comfyui.sh`: GPU VM setup script with SSL support
+- `docker-compose.yml`: Production container orchestration
+- `MIGRATION.md`: Guide for migrating from legacy dual-ComfyUI setup
+- `.env.new.example`: Environment configuration template
 
-## Workflow Process
+## Current Workflow
 
-1. User creates workflow in local ComfyUI UI
-2. Custom node sends workflow + model URL to dispatcher
-3. Dispatcher uploads job data to GCS and starts GPU VM
-4. VM bootstraps, downloads model, executes workflow
-5. Results uploaded to GCS with completion flag
-6. Dispatcher returns signed URLs for generated images
-7. VM auto-shuts down to minimize costs
+1. **User Authentication**: Login to frontend with password-based JWT auth
+2. **Instance Control**: Start GCE instance via web interface
+3. **Automatic Setup**: VM boots with ComfyUI, nginx SSL proxy, and persistent storage
+4. **Direct Access**: Frontend embeds ComfyUI via HTTPS iframe
+5. **Usage Monitoring**: Keep-alive signals prevent premature shutdown
+6. **Cost Control**: Instance auto-stops after 30 minutes of inactivity
+
+## Authentication System
+
+### Frontend Authentication
+- **Method**: JWT tokens stored in localStorage (bypasses cookie proxy issues)
+- **API Headers**: Uses `x-auth-token` header for authenticated requests
+- **Dual Support**: `checkAuthFlex()` supports both header and cookie methods
+- **Session Length**: 24-hour token expiry with secure logout
+
+### ComfyUI Access
+- **SSL/HTTPS**: Automatic Let's Encrypt certificate when domain configured
+- **Iframe Compatible**: No basic auth to prevent browser blocking
+- **Network Security**: Optional IP-based firewall restrictions
+- **Mixed Content**: HTTPS frontend requires HTTPS ComfyUI for security
+
+## Environment Variables
+
+### Frontend Configuration
+- `AUTH_PASSWORD`: Frontend login password
+- `JWT_SECRET`: Token signing secret
+- `DISPATCHER_URL`: Instance manager endpoint (auto-configured in containers)
+
+### Instance Manager Configuration  
+- `GCP_PROJECT`: Google Cloud project ID
+- `GCE_INSTANCE`: Name of ComfyUI GPU instance
+- `GCE_ZONE`: GCP zone for instance deployment
+- `STARTUP_SCRIPT_URL`: GCS URL of setup script
+- `COMFYUI_DOMAIN`: Domain for SSL certificate (optional)
+- `SSL_EMAIL`: Let's Encrypt registration email (optional)
+- `ALLOWED_IP`: IP address for firewall restriction (optional)
+
+## Troubleshooting
+
+### Common Issues
+- **Mixed Content**: Ensure ComfyUI uses HTTPS when frontend is HTTPS
+- **GPU Quota**: Handle `ZONE_RESOURCE_POOL_EXHAUSTED` errors gracefully
+- **SSL Issues**: Verify domain DNS points to instance IP for certificate generation
+- **Auth Failures**: Check JWT token storage and header transmission
+- **Network**: Confirm firewall rules allow HTTP/HTTPS access to instances
+
+### Development Tips
+- Use browser dev tools to monitor auth token and iframe loading
+- Check instance manager logs for GCP API errors
+- Monitor GCE instance logs during startup for script execution
+- Test direct ComfyUI access before troubleshooting iframe issues
+- Verify SSL certificate status with `curl -I https://domain.com`

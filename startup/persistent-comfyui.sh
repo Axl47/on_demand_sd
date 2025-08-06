@@ -13,6 +13,8 @@ meta() {
 ALLOWED_IP="$(meta allowed_ip)"
 AUTH_USER="$(meta auth_user || echo 'admin')"
 AUTH_PASS="$(meta auth_pass || echo 'comfyui123')"
+DOMAIN_NAME="$(meta domain_name)"  # Domain for SSL certificate
+EMAIL="$(meta ssl_email)"          # Email for Let's Encrypt
 
 # -------- 1. Mount persistent disk if available ------------------------
 PERSIST_MNT="/mnt/persist"
@@ -42,7 +44,8 @@ sed -i '/bullseye-backports/d' /etc/apt/sources.list /etc/apt/sources.list.d/*.l
 
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -yq \
-    git python3-venv libgl1 wget curl jq nginx apache2-utils supervisor
+    git python3-venv libgl1 wget curl jq nginx apache2-utils supervisor \
+    certbot python3-certbot-nginx
 
 # -------- 3. ComfyUI setup ----------------------------------------------
 COMFY_DIR="$PERSIST_MNT/ComfyUI"
@@ -87,24 +90,32 @@ fi
 # Create auth file
 htpasswd -bc /etc/nginx/.htpasswd "$AUTH_USER" "$AUTH_PASS"
 
-# Configure nginx
+# Configure nginx with SSL support
 cat > /etc/nginx/sites-available/comfyui << 'NGINX_CONF'
 map $http_upgrade $connection_upgrade {
     default upgrade;
     '' close;
 }
 
+# HTTP server (will redirect to HTTPS if domain is configured)
 server {
     listen 80;
     server_name _;
     
-    # Allow iframe embedding from frontend (disable X-Frame-Options for iframe compatibility)
-    add_header Access-Control-Allow-Origin "*" always;
-    add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
-    add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+    # Health check endpoint (always available via HTTP)
+    location /health {
+        return 200 "OK\n";
+        add_header Content-Type text/plain;
+    }
     
-    # Proxy to ComfyUI (no auth for iframe compatibility)
+    # If domain is configured, redirect to HTTPS, otherwise serve directly
     location / {
+        # Allow iframe embedding from frontend
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+        
+        # Proxy to ComfyUI
         proxy_pass http://127.0.0.1:8188;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -121,13 +132,6 @@ server {
         # Large file uploads for models
         client_max_body_size 10G;
     }
-    
-    # Health check endpoint (no auth)
-    location /health {
-        auth_basic off;
-        return 200 "OK\n";
-        add_header Content-Type text/plain;
-    }
 }
 NGINX_CONF
 
@@ -138,6 +142,35 @@ rm -f /etc/nginx/sites-enabled/default
 # Test and reload nginx
 nginx -t
 systemctl restart nginx
+
+# -------- 5b. Setup SSL certificate if domain is provided ---------------
+if [[ -n "$DOMAIN_NAME" && -n "$EMAIL" ]]; then
+    logger -t startup-script ">> Setting up SSL certificate for domain: $DOMAIN_NAME"
+    
+    # Update nginx config to use the domain name
+    sed -i "s/server_name _;/server_name $DOMAIN_NAME;/" /etc/nginx/sites-available/comfyui
+    
+    # Add HTTPS redirect for domain requests
+    sed -i '/location \/ {/i\
+    # Redirect HTTP to HTTPS for domain requests\
+    if ($host = '$DOMAIN_NAME') {\
+        return 301 https://$server_name$request_uri;\
+    }'  /etc/nginx/sites-available/comfyui
+    
+    # Reload with domain config
+    nginx -t && systemctl reload nginx
+    
+    # Get SSL certificate
+    certbot --nginx -d "$DOMAIN_NAME" --email "$EMAIL" --agree-tos --non-interactive --redirect
+    
+    if [[ $? -eq 0 ]]; then
+        logger -t startup-script ">> SSL certificate obtained successfully for $DOMAIN_NAME"
+    else
+        logger -t startup-script ">> Failed to obtain SSL certificate, continuing with HTTP"
+    fi
+else
+    logger -t startup-script ">> No domain configured, using HTTP only"
+fi
 
 # -------- 6. Configure supervisor for ComfyUI --------------------------
 cat > /etc/supervisor/conf.d/comfyui.conf << SUPERVISOR_CONF

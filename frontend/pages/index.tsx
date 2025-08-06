@@ -7,6 +7,7 @@ import { getAuthToken, isTokenExpired, clearAuthToken } from '@/lib/auth-client'
 interface InstanceStatus {
   status: 'RUNNING' | 'TERMINATED' | 'STOPPING' | 'PROVISIONING' | 'STAGING' | 'UNKNOWN';
   external_ip?: string;
+  comfyui_url?: string;
   last_activity?: string;
 }
 
@@ -166,9 +167,7 @@ export default function Home() {
     );
   }
 
-  const comfyuiUrl = instanceStatus?.external_ip 
-    ? `http://${instanceStatus.external_ip}`
-    : process.env.NEXT_PUBLIC_GCE_COMFYUI_URL || '';
+  const comfyuiUrl = instanceStatus?.comfyui_url || '';
 
   const isRunning = instanceStatus?.status === 'RUNNING';
   const isTransitioning = ['STOPPING', 'PROVISIONING', 'STAGING'].includes(instanceStatus?.status || '');

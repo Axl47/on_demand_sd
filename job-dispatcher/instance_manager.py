@@ -46,7 +46,9 @@ ZONE = os.getenv("GCE_ZONE", "us-central1-a")
 STARTUP_SCRIPT_URL = os.getenv("STARTUP_SCRIPT_URL")
 ALLOWED_IP = os.getenv("ALLOWED_IP")  # IP allowed to access ComfyUI
 AUTH_USER = os.getenv("COMFYUI_AUTH_USER", "admin")
-AUTH_PASS = os.getenv("COMFYUI_AUTH_PASS", "comfyui@123")
+AUTH_PASS = os.getenv("COMFYUI_AUTH_PASS", "comfyui123")
+DOMAIN_NAME = os.getenv("COMFYUI_DOMAIN")  # Domain for SSL certificate
+SSL_EMAIL = os.getenv("SSL_EMAIL")  # Email for Let's Encrypt
 
 # Log configuration (without sensitive data)
 logger.info(f"Configuration loaded:")
@@ -97,9 +99,18 @@ def get_instance_status():
                 if external_ip:
                     break
         
+        # Determine the URL to use (HTTPS domain or HTTP IP)
+        comfyui_url = None
+        if status == "RUNNING":
+            if DOMAIN_NAME:
+                comfyui_url = f"https://{DOMAIN_NAME}"
+            elif external_ip:
+                comfyui_url = f"http://{external_ip}"
+        
         result = {
             "status": status,
             "external_ip": external_ip,
+            "comfyui_url": comfyui_url,
             "last_activity": last_activity.isoformat()
         }
         logger.info(f"Returning status: {result}")
@@ -208,6 +219,11 @@ def start_instance():
             {"key": "auth_user", "value": AUTH_USER},
             {"key": "auth_pass", "value": AUTH_PASS}
         ])
+        
+        if DOMAIN_NAME:
+            metadata_items.append({"key": "domain_name", "value": DOMAIN_NAME})
+        if SSL_EMAIL:
+            metadata_items.append({"key": "ssl_email", "value": SSL_EMAIL})
         
         try:
             set_instance_metadata(metadata_items)
