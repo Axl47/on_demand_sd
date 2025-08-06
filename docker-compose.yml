@@ -40,6 +40,8 @@ services:
       - COMFYUI_AUTH_PASS=${COMFYUI_AUTH_PASS:-comfyui123}
       - COMFYUI_DOMAIN=${COMFYUI_DOMAIN}
       - SSL_EMAIL=${SSL_EMAIL}
+      - CF_CERT_PATH=${CF_CERT_PATH}
+      - CF_KEY_PATH=${CF_KEY_PATH}
     command: |
       sh -c "pip install -r requirements.txt && 
              python instance_manager.py"
