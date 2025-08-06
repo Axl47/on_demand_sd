@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import axios from 'axios';
+import api from '@/lib/api';
+import { getAuthToken, isTokenExpired, clearAuthToken } from '@/lib/auth-client';
 
 interface InstanceStatus {
   status: 'RUNNING' | 'TERMINATED' | 'STOPPING' | 'PROVISIONING' | 'STAGING' | 'UNKNOWN';
@@ -57,20 +59,50 @@ export default function Home() {
 
   const checkAuth = async () => {
     try {
-      const res = await axios.get('/api/auth/check');
+      // First check localStorage token
+      const token = getAuthToken();
+      console.log('Checking auth - token from localStorage:', token ? '[PRESENT]' : '[MISSING]');
+      
+      if (!token) {
+        console.log('No token in localStorage, redirecting to login');
+        router.push('/login');
+        return;
+      }
+      
+      if (isTokenExpired(token)) {
+        console.log('Token expired, clearing and redirecting to login');
+        clearAuthToken();
+        router.push('/login');
+        return;
+      }
+      
+      // Verify token with server using alternative endpoint
+      const res = await axios.get('/api/auth/check-alt', {
+        headers: {
+          'x-auth-token': token
+        }
+      });
+      
+      console.log('Auth check response:', res.data);
+      
       if (!res.data.authenticated) {
+        console.log('Server says token invalid, clearing and redirecting');
+        clearAuthToken();
         router.push('/login');
       } else {
+        console.log('Authentication successful');
         setAuthenticated(true);
       }
-    } catch {
+    } catch (err) {
+      console.error('Auth check failed:', err);
+      clearAuthToken();
       router.push('/login');
     }
   };
 
   const checkInstanceStatus = async () => {
     try {
-      const res = await axios.get('/api/instance/status');
+      const res = await api.get('/api/instance/status');
       setInstanceStatus(res.data);
       setError('');
     } catch (err) {
@@ -81,7 +113,7 @@ export default function Home() {
 
   const sendKeepAlive = async () => {
     try {
-      await axios.post('/api/instance/keep-alive');
+      await api.post('/api/instance/keep-alive');
     } catch (err) {
       console.error('Failed to send keep-alive:', err);
     }
@@ -91,7 +123,7 @@ export default function Home() {
     setLoading(true);
     setError('');
     try {
-      await axios.post('/api/instance/start');
+      await api.post('/api/instance/start');
       await checkInstanceStatus();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to start instance');
@@ -104,7 +136,7 @@ export default function Home() {
     setLoading(true);
     setError('');
     try {
-      await axios.post('/api/instance/stop');
+      await api.post('/api/instance/stop');
       await checkInstanceStatus();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to stop instance');
@@ -114,7 +146,7 @@ export default function Home() {
   };
 
   const handleLogout = async () => {
-    await axios.post('/api/auth/logout');
+    clearAuthToken();
     router.push('/login');
   };
 
