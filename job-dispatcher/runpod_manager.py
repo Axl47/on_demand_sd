@@ -115,18 +115,23 @@ def get_pod_status(pod_id: str = None):
         comfyui_url = None
         
         if status == "RUNNING":
-            # Runpod provides proxy URLs for accessing services
-            if pod.get("proxy_url"):
-                # ComfyUI typically runs on port 8188
-                comfyui_url = f"https://{pod['id']}-8188.proxy.runpod.net"
-                external_ip = pod.get("proxy_url", "").replace("https://", "").replace(".proxy.runpod.net", "")
-            elif COMFYUI_DOMAIN:
-                comfyui_url = f"https://{COMFYUI_DOMAIN}"
+            # Runpod proxy URL format: https://{pod_id}-{port}.proxy.runpod.net
+            # ComfyUI typically runs on port 8188
+            if pod_id:
+                comfyui_url = f"https://{pod_id}-8188.proxy.runpod.net"
+                external_ip = f"{pod_id}.proxy.runpod.net"
+                logger.info(f"Generated Runpod proxy URL: {comfyui_url}")
             
-            # Alternative: Direct IP if available
+            # Override with custom domain if configured
+            if COMFYUI_DOMAIN:
+                comfyui_url = f"https://{COMFYUI_DOMAIN}"
+                logger.info(f"Using custom domain: {comfyui_url}")
+            
+            # Fallback: Direct IP if available (rare for Runpod)
             if not comfyui_url and pod.get("ip"):
                 external_ip = pod["ip"]
                 comfyui_url = f"http://{external_ip}:8188"
+                logger.info(f"Using direct IP: {comfyui_url}")
         
         result = {
             "status": status,
