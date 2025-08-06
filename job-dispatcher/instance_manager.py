@@ -291,4 +291,9 @@ def get_activity():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8187)
+    logger.info("Starting ComfyUI Instance Manager on 0.0.0.0:8187")
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=8187, log_level="info")
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        raise

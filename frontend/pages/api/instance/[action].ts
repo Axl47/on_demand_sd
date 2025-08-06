@@ -5,6 +5,11 @@ import axios from 'axios';
 const DISPATCHER_URL = process.env.DISPATCHER_URL || 'http://localhost:8187';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  console.log('Instance API - DISPATCHER_URL:', DISPATCHER_URL);
+  console.log('Instance API - Environment vars:', {
+    NODE_ENV: process.env.NODE_ENV,
+    DISPATCHER_URL: process.env.DISPATCHER_URL
+  });
   if (!checkAuthFlex(req, res)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
