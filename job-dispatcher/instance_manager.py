@@ -85,17 +85,25 @@ def get_instance_status():
         # Get external IP if running
         external_ip = None
         if status == "RUNNING":
+            logger.info(f"Instance is RUNNING, looking for external IP")
             for interface in instance.get("networkInterfaces", []):
+                logger.info(f"Checking network interface: {interface.get('name', 'unknown')}")
                 for config in interface.get("accessConfigs", []):
-                    if config.get("natIP"):
-                        external_ip = config["natIP"]
+                    nat_ip = config.get("natIP")
+                    logger.info(f"Found access config with natIP: {nat_ip}")
+                    if nat_ip:
+                        external_ip = nat_ip
                         break
+                if external_ip:
+                    break
         
-        return {
+        result = {
             "status": status,
             "external_ip": external_ip,
             "last_activity": last_activity.isoformat()
         }
+        logger.info(f"Returning status: {result}")
+        return result
     except HttpError as e:
         if e.resp.status == 404:
             return {"status": "NOT_FOUND", "external_ip": None}

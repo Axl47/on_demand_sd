@@ -98,17 +98,12 @@ server {
     listen 80;
     server_name _;
     
-    # Basic authentication
-    auth_basic "ComfyUI Access";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-    
-    # CORS headers for iframe embedding
-    add_header X-Frame-Options "SAMEORIGIN" always;
+    # Allow iframe embedding from frontend (disable X-Frame-Options for iframe compatibility)
     add_header Access-Control-Allow-Origin "*" always;
     add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
     add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
     
-    # Proxy to ComfyUI
+    # Proxy to ComfyUI (no auth for iframe compatibility)
     location / {
         proxy_pass http://127.0.0.1:8188;
         proxy_http_version 1.1;
