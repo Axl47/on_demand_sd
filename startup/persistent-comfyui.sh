@@ -211,8 +211,8 @@ server {
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;
     
-    # Security headers
-    add_header X-Frame-Options SAMEORIGIN always;
+    # Security headers - Allow iframe embedding from frontend domain
+    add_header Content-Security-Policy "frame-ancestors 'self' https://image.axorai.net" always;
     add_header X-Content-Type-Options nosniff always;
     add_header X-XSS-Protection "1; mode=block" always;
     
