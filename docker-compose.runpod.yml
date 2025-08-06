@@ -1,0 +1,46 @@
+services:
+  # Frontend - ComfyUI Controller
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: comfyui-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - DISPATCHER_URL=http://dispatcher:8187
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-comfyui123}
+    depends_on:
+      - dispatcher
+    restart: unless-stopped
+    networks:
+      - comfyui-network
+
+  # Runpod Instance Manager
+  dispatcher:
+    image: python:3.10-slim
+    container_name: comfyui-dispatcher-runpod
+    ports:
+      - "${DISPATCHER_PORT:-8187}:8187"
+    volumes:
+      - ./job-dispatcher:/app
+    working_dir: /app
+    environment:
+      - RUNPOD_API_KEY=${RUNPOD_API_KEY}
+      - RUNPOD_POD_ID=${RUNPOD_POD_ID}
+      - RUNPOD_TEMPLATE_ID=${RUNPOD_TEMPLATE_ID}
+      - RUNPOD_GPU_TYPE=${RUNPOD_GPU_TYPE:-NVIDIA L40S}
+      - RUNPOD_DISK_SIZE=${RUNPOD_DISK_SIZE:-100}
+      - RUNPOD_VOLUME_ID=${RUNPOD_VOLUME_ID}
+      - COMFYUI_DOMAIN=${COMFYUI_DOMAIN}
+    command: |
+      sh -c "pip install -r requirements-runpod.txt && 
+             python runpod_manager.py"
+    restart: unless-stopped
+    networks:
+      - comfyui-network
+
+networks:
+  comfyui-network:
+    driver: bridge

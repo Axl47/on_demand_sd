@@ -321,26 +321,178 @@ systemctl restart supervisor
 # Give supervisor time to start processes
 sleep 5
 
+# Check system resources before starting ComfyUI
+logger -t startup-script ">> System resource check:"
+logger -t startup-script ">> Available memory: $(free -h | grep '^Mem:' | awk '{print $7}')"
+logger -t startup-script ">> GPU status:"
+nvidia-smi --query-gpu=memory.total,memory.free,memory.used --format=csv,noheader | logger -t startup-script
+
 # Check if ComfyUI started successfully
 supervisorctl status comfyui
 if ! supervisorctl status comfyui | grep -q RUNNING; then
-    logger -t startup-script ">> ComfyUI failed to start, checking logs..."
+    logger -t startup-script ">> ComfyUI failed to start, checking system logs..."
+    
+    # Check for OOM killer or system-level crashes
+    logger -t startup-script ">> Checking dmesg for crashes:"
+    dmesg | tail -n 20 | logger -t startup-script
+    logger -t startup-script ">> Checking for OOM killer:"
+    dmesg | grep -i "killed process\|out of memory" | tail -n 10 | logger -t startup-script || echo "No OOM events found" | logger -t startup-script
+    
+    # Check ComfyUI logs
+    logger -t startup-script ">> ComfyUI error log:"
     tail -n 50 /var/log/comfyui.err.log | logger -t startup-script
+    logger -t startup-script ">> ComfyUI output log:"
+    tail -n 50 /var/log/comfyui.out.log | logger -t startup-script
     
     # Try starting ComfyUI directly for debugging
-    logger -t startup-script ">> Attempting direct start for debugging..."
+    logger -t startup-script ">> Attempting direct start with CPU mode for debugging..."
     cd "$COMFY_DIR"
-    timeout 10 $VENV_DIR/bin/python main.py --listen 127.0.0.1 --port 8188 2>&1 | head -n 20 | logger -t startup-script || true
+    timeout 15 $VENV_DIR/bin/python -u main.py --listen 127.0.0.1 --port 8188 --cpu 2>&1 | head -n 30 | logger -t startup-script || true
     
-    # Restart supervisor one more time
+    # Create memory-optimized supervisor config
+    logger -t startup-script ">> Creating memory-optimized ComfyUI config..."
+    cat > /etc/supervisor/conf.d/comfyui.conf << SUPERVISOR_OPTIMIZED
+[program:comfyui]
+command=$VENV_DIR/bin/python -u $COMFY_DIR/main.py --listen 127.0.0.1 --port 8188 --normalvram --use-pytorch-cross-attention
+directory=$COMFY_DIR
+user=root
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/comfyui.err.log
+stdout_logfile=/var/log/comfyui.out.log
+environment=PATH="$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",PYTHONPATH="$COMFY_DIR:$VENV_DIR/lib/python3.10/site-packages",PYTHONUNBUFFERED="1"
+startsecs=15
+startretries=5
+stopasgroup=true
+killasgroup=true
+SUPERVISOR_OPTIMIZED
+    
+    supervisorctl reread
+    supervisorctl update
     supervisorctl restart comfyui
+    
+    # Wait and check again
+    sleep 10
+    if ! supervisorctl status comfyui | grep -q RUNNING; then
+        logger -t startup-script ">> GPU mode failed, trying CPU mode..."
+        # Try CPU-only mode as fallback
+        cat > /etc/supervisor/conf.d/comfyui.conf << SUPERVISOR_CPU
+[program:comfyui]
+command=$VENV_DIR/bin/python -u $COMFY_DIR/main.py --listen 127.0.0.1 --port 8188 --cpu
+directory=$COMFY_DIR
+user=root
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/comfyui.err.log
+stdout_logfile=/var/log/comfyui.out.log
+environment=PATH="$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",PYTHONPATH="$COMFY_DIR:$VENV_DIR/lib/python3.10/site-packages",PYTHONUNBUFFERED="1"
+startsecs=20
+startretries=3
+stopasgroup=true
+killasgroup=true
+SUPERVISOR_CPU
+        
+        supervisorctl reread
+        supervisorctl update
+        supervisorctl restart comfyui
+        logger -t startup-script ">> Started ComfyUI in CPU-only mode as fallback"
+    fi
 fi
 
 # -------- 7. Wait for ComfyUI to be ready ------------------------------
 logger -t startup-script ">> Waiting for ComfyUI to start..."
 for i in {1..60}; do
     if curl -s http://127.0.0.1:8188/ >/dev/null 2>&1; then
-        logger -t startup-script ">> ComfyUI is ready!"
+        logger -t startup-script ">> ComfyUI initially responded! Running immediate diagnostics..."
+        
+        # IMMEDIATE resource monitoring right when it first responds
+        logger -t startup-script ">> System resources at initial response:"
+        free -h | grep '^Mem:' | awk '{print "Memory - Used:" $3 " Available:" $7}' | logger -t startup-script
+        nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv,noheader | sed 's/^/GPU Memory: /' | logger -t startup-script
+        
+        # Check supervisor status immediately
+        logger -t startup-script ">> Supervisor status at initial response:"
+        supervisorctl status comfyui | logger -t startup-script
+        
+        # Check processes immediately
+        logger -t startup-script ">> ComfyUI processes at initial response:"
+        ps aux | grep -v grep | grep "main.py" | logger -t startup-script
+        
+        # Brief stability test - check if it crashes within 5 seconds
+        logger -t startup-script ">> Testing stability for 5 seconds..."
+        sleep 2
+        
+        # Second stability check
+        if curl -s http://127.0.0.1:8188/ >/dev/null 2>&1; then
+            logger -t startup-script ">> Still responding after 2 seconds..."
+            sleep 3
+            
+            # Third check
+            if curl -s http://127.0.0.1:8188/ >/dev/null 2>&1; then
+                logger -t startup-script ">> ✓ ComfyUI stable after 5 seconds - startup successful!"
+                
+                # Final status check
+                if supervisorctl status comfyui | grep -q RUNNING; then
+                    logger -t startup-script ">> ✓ Supervisor confirms ComfyUI is running"
+                else
+                    logger -t startup-script ">> ⚠ Supervisor shows ComfyUI not running despite HTTP response"
+                    supervisorctl status comfyui | logger -t startup-script
+                fi
+                break
+            else
+                logger -t startup-script ">> ✗ ComfyUI stopped responding after 5 seconds - CRASH DETECTED"
+            fi
+        else
+            logger -t startup-script ">> ✗ ComfyUI stopped responding after 2 seconds - EARLY CRASH"
+        fi
+        
+        # CRASH ANALYSIS - Run comprehensive diagnostics when crash is detected
+        logger -t startup-script ">> === CRASH ANALYSIS STARTED ==="
+        
+        # System-level crash detection
+        logger -t startup-script ">> Checking for OOM killer:"
+        dmesg | grep -i "killed process\|out of memory" | tail -n 5 | logger -t startup-script
+        if ! dmesg | grep -i "killed process\|out of memory" | tail -n 5 | grep -q .; then
+            logger -t startup-script ">> No OOM killer events found"
+        fi
+        
+        # GPU-specific issues
+        logger -t startup-script ">> Checking for GPU/CUDA errors:"
+        dmesg | tail -n 20 | grep -i "gpu\|cuda\|nvidia" | logger -t startup-script
+        if ! dmesg | tail -n 20 | grep -i "gpu\|cuda\|nvidia" | grep -q .; then
+            logger -t startup-script ">> No GPU errors in dmesg"
+        fi
+        
+        # Memory status post-crash
+        logger -t startup-script ">> Memory status after crash:"
+        free -m | logger -t startup-script
+        
+        # GPU status post-crash  
+        logger -t startup-script ">> GPU status after crash:"
+        nvidia-smi | logger -t startup-script
+        
+        # ComfyUI logs
+        logger -t startup-script ">> ComfyUI error log:"
+        if [[ -s /var/log/comfyui.err.log ]]; then
+            tail -n 30 /var/log/comfyui.err.log | logger -t startup-script
+        else
+            logger -t startup-script ">> Error log is empty - indicates system-level crash"
+        fi
+        
+        logger -t startup-script ">> ComfyUI output log:"
+        if [[ -s /var/log/comfyui.out.log ]]; then
+            tail -n 30 /var/log/comfyui.out.log | logger -t startup-script
+        else
+            logger -t startup-script ">> Output log is empty"
+        fi
+        
+        # Process status
+        logger -t startup-script ">> Current supervisor status:"
+        supervisorctl status | logger -t startup-script
+        
+        logger -t startup-script ">> === CRASH ANALYSIS COMPLETED - ATTEMPTING RECOVERY ==="
+        
+        # Trigger fallback to earlier diagnostic/recovery logic
         break
     fi
     sleep 2
@@ -348,7 +500,7 @@ done
 
 # -------- 8. Configure firewall if IP restriction is set ---------------
 if [[ -n "$ALLOWED_IP" ]]; then
-    logger -t startup-script ">> Configuring firewall to allow only: $ALLOWED_IP"
+    logger -t startup-script ">> Configuring firewall to allow: $ALLOWED_IP"
     # Install ufw if not present
     apt-get install -yq ufw
     
@@ -356,14 +508,51 @@ if [[ -n "$ALLOWED_IP" ]]; then
     ufw --force enable
     ufw default deny incoming
     ufw default allow outgoing
-    ufw allow from "$ALLOWED_IP" to any port 80
-    ufw allow from "$ALLOWED_IP" to any port 443
-    ufw allow from "$ALLOWED_IP" to any port 22
+    
+    # Handle multiple IPs or CIDR blocks (comma-separated)
+    IFS=',' read -ra IP_ARRAY <<< "$ALLOWED_IP"
+    for ip in "${IP_ARRAY[@]}"; do
+        # Trim whitespace
+        ip=$(echo "$ip" | xargs)
+        logger -t startup-script ">> Adding firewall rule for: $ip"
+        ufw allow from "$ip" to any port 80
+        ufw allow from "$ip" to any port 443
+        ufw allow from "$ip" to any port 22
+    done
+    
+    # Add Cloudflare IP ranges for HTTPS traffic (since using Cloudflare origin certs)
+    if [[ -n "$DOMAIN_NAME" && -n "$CF_CERT_PATH" ]]; then
+        logger -t startup-script ">> Adding Cloudflare IP ranges for HTTPS"
+        # Major Cloudflare IPv4 ranges
+        cloudflare_ips=(
+            "173.245.48.0/20"
+            "103.21.244.0/22"
+            "103.22.200.0/22"
+            "103.31.4.0/22"
+            "141.101.64.0/18"
+            "108.162.192.0/18"
+            "190.93.240.0/20"
+            "188.114.96.0/20"
+            "197.234.240.0/22"
+            "198.41.128.0/17"
+            "162.158.0.0/15"
+            "104.16.0.0/13"
+            "104.24.0.0/14"
+            "172.64.0.0/13"
+            "131.0.72.0/22"
+        )
+        
+        for cf_ip in "${cloudflare_ips[@]}"; do
+            ufw allow from "$cf_ip" to any port 443 comment "Cloudflare"
+        done
+    fi
+    
     ufw reload
 else
     # Ensure ports are open if no IP restriction
-    logger -t startup-script ">> Ensuring firewall allows HTTP/HTTPS access"
+    logger -t startup-script ">> No IP restrictions - allowing all HTTP/HTTPS access"
     if command -v ufw >/dev/null 2>&1; then
+        ufw --force enable
         ufw allow 80/tcp
         ufw allow 443/tcp
         ufw allow 22/tcp
@@ -473,10 +662,59 @@ fi
 logger -t startup-script ">> Nginx status: $(systemctl is-active nginx)"
 logger -t startup-script ">> ComfyUI process: $(pgrep -f main.py | wc -l) processes running"
 
-# Test local connectivity
-sleep 5
-if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8188/ | grep -q "200"; then
-    logger -t startup-script ">> ComfyUI responding locally on port 8188"
+# Final comprehensive health check
+sleep 3
+logger -t startup-script ">> Final ComfyUI health check:"
+
+# Check HTTP response
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8188/ || echo "000")
+if [[ "$HTTP_CODE" == "200" ]]; then
+    logger -t startup-script ">> ✓ ComfyUI responding with HTTP 200"
+    COMFYUI_MODE=$(supervisorctl status comfyui | grep RUNNING && echo "SUCCESS" || echo "FAILED")
+    logger -t startup-script ">> ✓ Supervisor status: $COMFYUI_MODE"
+    
+    # Check if running in GPU or CPU mode
+    if ps aux | grep -v grep | grep "main.py" | grep -q -- "--cpu"; then
+        logger -t startup-script ">> ⚠ Running in CPU-only mode (GPU issues detected)"
+    else
+        logger -t startup-script ">> ✓ Running in GPU mode"
+    fi
+    
+    # Final resource report
+    logger -t startup-script ">> Final resource usage:"
+    logger -t startup-script ">> System memory: $(free -h | grep '^Mem:' | awk '{print "Used:" $3 " Available:" $7}')"
+    nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader | sed 's/^/>> GPU memory: /' | logger -t startup-script
+    
 else
-    logger -t startup-script ">> WARNING: ComfyUI not responding locally on port 8188"
+    logger -t startup-script ">> ✗ ComfyUI not responding (HTTP $HTTP_CODE)"
+    logger -t startup-script ">> Troubleshooting information:"
+    
+    # Supervisor status
+    logger -t startup-script ">> Supervisor processes:"
+    supervisorctl status | logger -t startup-script
+    
+    # System resources
+    logger -t startup-script ">> System memory:"
+    free -m | logger -t startup-script
+    logger -t startup-script ">> GPU status:"
+    nvidia-smi | logger -t startup-script
+    
+    # Check for system-level issues
+    logger -t startup-script ">> Recent system messages:"
+    dmesg | tail -n 20 | logger -t startup-script
+    
+    # Final attempt to get error details
+    if [[ -s /var/log/comfyui.err.log ]]; then
+        logger -t startup-script ">> ComfyUI error log (last 30 lines):"
+        tail -n 30 /var/log/comfyui.err.log | logger -t startup-script
+    else
+        logger -t startup-script ">> ComfyUI error log is empty - likely system-level crash"
+    fi
+    
+    if [[ -s /var/log/comfyui.out.log ]]; then
+        logger -t startup-script ">> ComfyUI output log (last 30 lines):"
+        tail -n 30 /var/log/comfyui.out.log | logger -t startup-script
+    fi
 fi
+
+logger -t startup-script ">> Startup script completed. Check logs above for any issues."
