@@ -1,0 +1,237 @@
+import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/router';
+import axios from 'axios';
+
+interface InstanceStatus {
+  status: 'RUNNING' | 'TERMINATED' | 'STOPPING' | 'PROVISIONING' | 'STAGING' | 'UNKNOWN';
+  external_ip?: string;
+  last_activity?: string;
+}
+
+export default function Home() {
+  const router = useRouter();
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [instanceStatus, setInstanceStatus] = useState<InstanceStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const keepAliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const statusCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Check authentication
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  // Check instance status periodically
+  useEffect(() => {
+    if (authenticated) {
+      checkInstanceStatus();
+      statusCheckIntervalRef.current = setInterval(checkInstanceStatus, 10000); // Every 10 seconds
+    }
+
+    return () => {
+      if (statusCheckIntervalRef.current) {
+        clearInterval(statusCheckIntervalRef.current);
+      }
+    };
+  }, [authenticated]);
+
+  // Send keep-alive when instance is running
+  useEffect(() => {
+    if (instanceStatus?.status === 'RUNNING') {
+      sendKeepAlive();
+      keepAliveIntervalRef.current = setInterval(sendKeepAlive, 30000); // Every 30 seconds
+    } else {
+      if (keepAliveIntervalRef.current) {
+        clearInterval(keepAliveIntervalRef.current);
+        keepAliveIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (keepAliveIntervalRef.current) {
+        clearInterval(keepAliveIntervalRef.current);
+      }
+    };
+  }, [instanceStatus?.status]);
+
+  const checkAuth = async () => {
+    try {
+      const res = await axios.get('/api/auth/check');
+      if (!res.data.authenticated) {
+        router.push('/login');
+      } else {
+        setAuthenticated(true);
+      }
+    } catch {
+      router.push('/login');
+    }
+  };
+
+  const checkInstanceStatus = async () => {
+    try {
+      const res = await axios.get('/api/instance/status');
+      setInstanceStatus(res.data);
+      setError('');
+    } catch (err) {
+      console.error('Failed to check instance status:', err);
+      setError('Failed to check instance status');
+    }
+  };
+
+  const sendKeepAlive = async () => {
+    try {
+      await axios.post('/api/instance/keep-alive');
+    } catch (err) {
+      console.error('Failed to send keep-alive:', err);
+    }
+  };
+
+  const startInstance = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await axios.post('/api/instance/start');
+      await checkInstanceStatus();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to start instance');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stopInstance = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await axios.post('/api/instance/stop');
+      await checkInstanceStatus();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to stop instance');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await axios.post('/api/auth/logout');
+    router.push('/login');
+  };
+
+  if (authenticated === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  const comfyuiUrl = instanceStatus?.external_ip 
+    ? `http://${instanceStatus.external_ip}`
+    : process.env.NEXT_PUBLIC_GCE_COMFYUI_URL || '';
+
+  const isRunning = instanceStatus?.status === 'RUNNING';
+  const isTransitioning = ['STOPPING', 'PROVISIONING', 'STAGING'].includes(instanceStatus?.status || '');
+
+  return (
+    <div className="min-h-screen bg-gray-900 relative">
+      {/* Control Panel */}
+      <div className="absolute top-0 left-0 right-0 bg-gray-800 shadow-lg z-10 p-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <h1 className="text-xl font-bold text-white">ComfyUI Controller</h1>
+            
+            <div className="flex items-center space-x-2">
+              <span className="text-gray-400">Status:</span>
+              <span className={`font-semibold ${
+                isRunning ? 'text-green-400' : 
+                isTransitioning ? 'text-yellow-400' : 
+                'text-red-400'
+              }`}>
+                {instanceStatus?.status || 'UNKNOWN'}
+              </span>
+            </div>
+
+            {instanceStatus?.last_activity && (
+              <div className="text-sm text-gray-400">
+                Last activity: {new Date(instanceStatus.last_activity).toLocaleTimeString()}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-4">
+            {isRunning ? (
+              <button
+                onClick={stopInstance}
+                disabled={loading || isTransitioning}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-md transition duration-200"
+              >
+                {loading ? 'Processing...' : 'Stop Instance'}
+              </button>
+            ) : (
+              <button
+                onClick={startInstance}
+                disabled={loading || isTransitioning}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-md transition duration-200"
+              >
+                {loading ? 'Processing...' : 'Start Instance'}
+              </button>
+            )}
+
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-md transition duration-200"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="max-w-7xl mx-auto mt-2">
+            <div className="text-red-400 text-sm">{error}</div>
+          </div>
+        )}
+      </div>
+
+      {/* ComfyUI iframe or Start Message */}
+      <div className="pt-20 h-screen">
+        {isRunning && comfyuiUrl ? (
+          <iframe
+            src={comfyuiUrl}
+            className="w-full h-full border-0"
+            title="ComfyUI"
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              {isTransitioning ? (
+                <>
+                  <div className="text-white text-2xl mb-4">
+                    Instance is {instanceStatus?.status?.toLowerCase()}...
+                  </div>
+                  <div className="text-gray-400">
+                    Please wait, this may take a few minutes
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-white text-2xl mb-4">
+                    ComfyUI instance is not running
+                  </div>
+                  <button
+                    onClick={startInstance}
+                    disabled={loading}
+                    className="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-md transition duration-200"
+                  >
+                    {loading ? 'Starting...' : 'Start ComfyUI'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Frontend - ComfyUI Controller
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: comfyui-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - DISPATCHER_URL=http://dispatcher:8187
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-comfyui123}
+      - GCE_COMFYUI_URL=${GCE_COMFYUI_URL}
+    depends_on:
+      - dispatcher
+    restart: unless-stopped
+    networks:
+      - comfyui-network
+
+  # Instance Manager (formerly Job Dispatcher)
+  dispatcher:
+    image: python:3.10-slim
+    container_name: comfyui-dispatcher
+    ports:
+      - "${DISPATCHER_PORT:-8187}:8187"
+    volumes:
+      - ./job-dispatcher:/app
+      - ${GCP_CREDENTIALS_PATH:-/home/axor/.config/gcloud}:/root/.config/gcloud:ro
+      - ${SERVICE_ACCOUNT_KEY:-/home/axor/.secrets/sa-key.json}:/tmp/sa-key.json:ro
+    working_dir: /app
+    environment:
+      - GCP_PROJECT=${GCP_PROJECT}
+      - GCE_INSTANCE=${GCE_INSTANCE:-comfyui-gpu}
+      - GCE_ZONE=${GCE_ZONE:-us-central1-a}
+      - GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json
+      - STARTUP_SCRIPT_URL=${STARTUP_SCRIPT_URL}
+      - ALLOWED_IP=${ALLOWED_IP}
+      - COMFYUI_AUTH_USER=${COMFYUI_AUTH_USER:-admin}
+      - COMFYUI_AUTH_PASS=${COMFYUI_AUTH_PASS:-comfyui123}
+    command: |
+      sh -c "pip install -r requirements.txt && 
+             python instance_manager.py"
+    restart: unless-stopped
+    networks:
+      - comfyui-network
+
+networks:
+  comfyui-network:
+    driver: bridge
